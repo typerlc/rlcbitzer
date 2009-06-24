@@ -7,13 +7,18 @@
 # Description: 
 #
 # Author:      Richard Colley (richard.colley@rcolley.com)
-# Version:     0.06 (2008-03-30)
+# Version:     0.08 (2008-03-31)
 # License:     GPL
 # ---------------------------------------------------------------------------
 # Changelog:
-# ---- 0.06 -- 2008-03-27 -- Richard Colley ----
+# ---- 0.08 -- 2008-03-31 -- Richard Colley ----
+#   added combo box to choose new card scheduling policy
+# ---- 0.07 -- 2008-03-30 -- Richard Colley ----
+#   added button on scribble pad to clear
+#   fixed changelog date mistakes
+# ---- 0.06 -- 2008-03-30 -- Richard Colley ----
 #   finalised scribble pad
-# ---- 0.05 -- 2008-03-27 -- Richard Colley ----
+# ---- 0.05 -- 2008-03-29 -- Richard Colley ----
 #   added new card distribution policy
 # ---- 0.04 -- 2008-03-27 -- Richard Colley ----
 #   another refactor ... but still not happy
@@ -40,7 +45,7 @@ from ankiqt.ui.preferences import Preferences
 
 import traceback
 class RlcDebug(object):
-	disabled = 0
+	disabled = 1
 	def debug( self, *args ):
 		if self.disabled:
 			return
@@ -122,6 +127,9 @@ class ExtendAnkiPrefs():
 		slider = self.prefsGetItem( itemName )
 		self.prefsSetConfig( itemName, slider.value() )
 
+	def prefsCommitComboBox( self, itemName ):
+		combo = self.prefsGetItem( itemName )
+		self.prefsSetConfig( itemName, combo.currentIndex() )
 
 	# UI stuff
 	def prefsAddTab( self, prefs, tabTitle ):
@@ -139,23 +147,26 @@ class ExtendAnkiPrefs():
 		self.rlcPrefsTabVboxLayout.addItem(spacerItem1)
 
 		prefs.dialog.tabWidget.addTab(self.rlcPrefsTab,self.tabTitle)
+		return self.rlcPrefsGridLayout
 
-	def prefsTabAddLabel( self, labelText ):
-		label = QtGui.QLabel(self.rlcPrefsTab)
+	def prefsTabAddLabel( self, layout, labelText, row, col=0, rowSpan=1, colSpan=-1 ):
+		label = QtGui.QLabel()
 		label.setText( labelText )
-		self.rlcPrefsGridLayout.addWidget(label,self.rlcPrefsGridLayout.rowCount(),0,1,1)
+		layout.addWidget(label,row,col,rowSpan,colSpan)
+		return label
 
-	def prefsTabAddCheckBox( self, label, itemName, defaultValue ):
-		checkBox = QtGui.QCheckBox(self.rlcPrefsTab)
+	def prefsTabAddCheckBox( self, layout, label, itemName, defaultValue, row, col=0, rowSpan=1, colSpan=-1 ):
+		checkBox = QtGui.QCheckBox()
 		checkBox.setObjectName( itemName )
 		checkBox.setText( label )
 
 		checkBox.setChecked( self.prefsGetConfig( itemName, defaultValue ) )
 		self.tabItems[itemName] = checkBox
-		self.rlcPrefsGridLayout.addWidget(checkBox,self.rlcPrefsGridLayout.rowCount(),0,1,1)
+		layout.addWidget(checkBox,row,col,rowSpan,colSpan)
+		return checkBox
 
-	def prefsTabAddSlider( self, label, itemName, defaultValue, min, max, step ):
-		slider = QtGui.QSlider( self.rlcPrefsTab )
+	def prefsTabAddSlider( self, layout, label, itemName, defaultValue, min, max, step, legend, row, col=0, rowSpan=1, colSpan=-1 ):
+		slider = QtGui.QSlider()
 		slider.setOrientation( Qt.Horizontal )
 		slider.setTickPosition(QtGui.QSlider.TicksBelow)
 		slider.setMinimum( min )
@@ -165,7 +176,35 @@ class ExtendAnkiPrefs():
 		slider.setPageStep(step)
 		slider.setSliderPosition( self.prefsGetConfig( itemName, defaultValue ) / step )
 		self.tabItems[itemName] = slider
-		self.rlcPrefsGridLayout.addWidget(slider,self.rlcPrefsGridLayout.rowCount(),0,1,1)
+		if legend:
+			comp = QtGui.QWidget()
+			gl = QtGui.QGridLayout(comp)
+			gl.addWidget(slider,0,col,1,-1)
+			legendLen = len( legend )
+			for i in range(legendLen):
+				midpoint = legendLen / 2
+				if i < midpoint:
+					align=Qt.AlignLeft
+				elif i == midpoint:
+					align=Qt.AlignHCenter
+				else:
+					align=Qt.AlignRight
+				label = QtGui.QLabel()
+				label.setText( legend[i] )
+				label.setAlignment( align )
+				gl.addWidget(label,1,col+i,1,1)
+		else:
+			comp=slider
+		layout.addWidget(comp,row,col,rowSpan,colSpan)
+		return comp
+
+	def prefsTabAddComboBox( self, layout, label, itemName, defaultValue, optionList, row, col=0, rowSpan=1, colSpan=-1 ):
+		combo = QtGui.QComboBox()
+		combo.addItems( optionList )
+		combo.setCurrentIndex( self.prefsGetConfig( itemName, defaultValue ) )
+		self.tabItems[itemName] = combo
+		layout.addWidget(combo,row,col,rowSpan,colSpan)
+		return combo
 
 class ExtendAnkiMain():
 	def __init__( self ):
@@ -316,7 +355,8 @@ class ExtendAnkiScheduling():
 	def __init__( self ):
 		self.oldDeckGetCard = Deck.getCard
 		Deck.getCard = lambda deck : self.interceptDeckGetCard( deck )
-		self.schedulingPolicy = AnkiDefaultSchedulingPolicy( self.oldDeckGetCard )
+		self.defaultPolicy = AnkiDefaultSchedulingPolicy( self.oldDeckGetCard )
+		self.schedulingPolicy = self.defaultPolicy
 
 	def setSchedulingPolicy( self, schedulingPolicy ):
 		self.schedulingPolicy = schedulingPolicy
@@ -334,10 +374,25 @@ class ExtendAnkiHelp():
 
 	def createScribble( self ):
 		mwui = self.mw.mainWin
-		self.scribble = Painting( mwui.innerHelpFrame, 300, 300 )
-		self.scribble.setEnabled( True )
-		self.scribble.setMinimumSize(QtCore.QSize(200,0))
-		self.scribble.setMaximumSize(QtCore.QSize(300,300))
+		self.scribble = QtGui.QWidget()
+		layout = QtGui.QVBoxLayout(self.scribble)
+		layout.setSpacing(3)
+		layout.setMargin(3)
+
+		pad = Painting( mwui.innerHelpFrame, 300, 300 )
+		pad.setEnabled( True )
+		pad.setMinimumSize(QtCore.QSize(200,0))
+		pad.setMaximumSize(QtCore.QSize(300,300))
+
+		button = QtGui.QPushButton(_("Clear Drawing"))
+		button.setDefault(True)
+		button.setFixedHeight(self.mw.easeButtonHeight)
+		self.mw.connect(button, QtCore.SIGNAL("clicked()"),
+                     lambda: pad.clearScreen())
+
+		layout.addWidget(button)
+		layout.addWidget(pad,1)
+	
 
 	def setScribble( self, display=False ):
 		mwui = self.mw.mainWin
@@ -364,6 +419,8 @@ class ExtendAnkiHelp():
 			mwui.hboxlayout2.addWidget( self.helpSplitter )
 			self.helpSplitter.addWidget( mwui.help )
 			self.helpSplitter.addWidget( self.scribble )
+
+			self.helpSplitter.setSizes( [100,150] )
 
 			self.scribble.show()
 			self.mw.help.showText( """
@@ -434,12 +491,27 @@ class RlcBitzer( ExtendAnkiPrefs, ExtendAnkiMain, ExtendAnkiEdit, ExtendAnkiSche
 	# set to 1 to allow update checks to be completely disabled by user
 	permitUpdateDisable = 0
 
+	# types of new card scheduling policy
+	NC_POLICY_DEFAULT = 0
+	NC_POLICY_DISTRIBUTE = 1
+
+	# prefs, and their default values
 	PREFS_FOCUS_ON_ANSWER = 'rlc.bitzer.answer.focusOnButton'
+	DEFAULT_FOCUS_ON_ANSWER = True
 	PREFS_CHECK_FOR_UPDATE = 'rlc.bitzer.update.check'
+	DEFAULT_CHECK_FOR_UPDATE = True
 	PREFS_QUIETEN_UPDATE = 'rlc.bitzer.update.quieten'
+	DEFAULT_QUIETEN_UPDATE = False
 	PREFS_EDIT_CURRENT = 'rlc.bitzer.edit.startupOnlyCurrent'
+	DEFAULT_EDIT_CURRENT = True
+	PREFS_NEW_CARD_POLICY = 'rlc.bitzer.cards.new.policy'
+	DEFAULT_NEW_CARD_POLICY = NC_POLICY_DEFAULT
 	PREFS_NEW_CARD_DISTRIBUTION  = 'rlc.bitzer.cards.new.distribution'
+	DEFAULT_NEW_CARD_DISTRIBUTION  = False
 	PREFS_ENABLE_SCRIBBLE = 'rlc.bitzer.help.scribble'
+	DEFAULT_ENABLE_SCRIBBLE = False
+
+
 
 	def __init__( self, ankiMain ):
 		# do early init
@@ -450,10 +522,6 @@ class RlcBitzer( ExtendAnkiPrefs, ExtendAnkiMain, ExtendAnkiEdit, ExtendAnkiSche
 
 		self.mw = ankiMain
 
-		self.schedulingPolicy = DistributeNewCardsSchedulingPolicy(
-			self.getConfig(self.PREFS_NEW_CARD_DISTRIBUTION,0) * 25 )
-
-		self.setSchedulingPolicy( self.schedulingPolicy )
 
 	def getConfig( self, item, default=None ):
 		if self.mw.config.has_key( item ):
@@ -466,34 +534,77 @@ class RlcBitzer( ExtendAnkiPrefs, ExtendAnkiMain, ExtendAnkiEdit, ExtendAnkiSche
 
 	def pluginInit( self ):
 		self.extHelp = ExtendAnkiHelp( self.mw )
-		self.extHelp.setScribble( self.getConfig( self.PREFS_ENABLE_SCRIBBLE ) )
+		self.extHelp.setScribble( self.getConfig( self.PREFS_ENABLE_SCRIBBLE, self.DEFAULT_ENABLE_SCRIBBLE ) )
+		self.setSchedulingPolicyFromConfig( self.getConfig )
+
+		
+	def setSchedulingPolicyFromConfig( self, thisGetConfig ):
+		policy = thisGetConfig( self.PREFS_NEW_CARD_POLICY, self.DEFAULT_NEW_CARD_POLICY )
+		if policy == self.NC_POLICY_DISTRIBUTE:
+			self.schedulingPolicy = DistributeNewCardsSchedulingPolicy(
+				thisGetConfig(self.PREFS_NEW_CARD_DISTRIBUTION,
+						self.DEFAULT_NEW_CARD_DISTRIBUTION) * 25 )
+		else:
+			self.schedulingPolicy = self.defaultPolicy
+
+		self.setSchedulingPolicy( self.schedulingPolicy )
 
 	########################################
 	# Over-ride methods in ExtendAnkiPrefs
 	########################################
 
 	def prefsSetup( self, prefs ):
-		self.prefsAddTab( prefs, _("RLC Bitzer Settings") )
-		self.prefsTabAddLabel( _("<h1>Main Window Settings</h1>") )
-		self.prefsTabAddCheckBox( _("Focus on answer"), self.PREFS_FOCUS_ON_ANSWER, 1 )
+		layout = self.prefsAddTab( prefs, _("RLC Bitzer Settings") )
+		self.prefsTabAddLabel( layout, _("<h1>Main Window Settings</h1>"), layout.rowCount() )
+		self.prefsTabAddCheckBox( layout,
+			_("Focus on answer"),
+			self.PREFS_FOCUS_ON_ANSWER,
+			self.DEFAULT_FOCUS_ON_ANSWER, layout.rowCount() )
 		if self.permitUpdateDisable:
-			self.prefsTabAddCheckBox( _("Check for Anki updates"), self.PREFS_CHECK_FOR_UPDATE, 1 )
-		self.prefsTabAddCheckBox( _("Suppress update dialog"), self.PREFS_QUIETEN_UPDATE, 0 )
-		self.prefsTabAddCheckBox( _("Enable scribble pad"), self.PREFS_ENABLE_SCRIBBLE, 0 )
-		self.prefsTabAddLabel( _("<h1>Edit Cards Window</h1>") )
-		self.prefsTabAddCheckBox( _("Start Edit Deck with only the current card displayed"), self.PREFS_EDIT_CURRENT, 1 )
-		self.prefsTabAddLabel( _(
-"""<h1>Card Scheduling</h1>
-This setting changes whether or not you see New cards while you are<br>
-still reviewing Old cards.
-<p>
-By setting this to the far-left, you retain the original Anki behaviour<br>
-of showing no New cards if there are Old cards due.
-<p>
-By setting this to the far-right, New cards will be shown <b>before</b><br>
-Old cards are shown.
-""") )
-		self.prefsTabAddSlider( _("Frequency of new cards during review"), self.PREFS_NEW_CARD_DISTRIBUTION, 0, 0, 4, 1 )
+			self.prefsTabAddCheckBox( layout,
+				_("Check for Anki updates"),
+				self.PREFS_CHECK_FOR_UPDATE,
+				self.DEFAULT_CHECK_FOR_UPDATE, layout.rowCount() )
+		self.prefsTabAddCheckBox( layout,
+			_("Suppress update dialog"),
+			self.PREFS_QUIETEN_UPDATE,
+			self.DEFAULT_QUIETEN_UPDATE, layout.rowCount() )
+		self.prefsTabAddCheckBox( layout,
+			_("Enable scribble pad"),
+			self.PREFS_ENABLE_SCRIBBLE,
+			self.DEFAULT_ENABLE_SCRIBBLE, layout.rowCount() )
+		self.prefsTabAddLabel( layout, _("<h1>Edit Cards Window</h1>"), layout.rowCount() )
+		self.prefsTabAddCheckBox( layout,
+			 _("Start Edit Deck with only the current card displayed"),
+			self.PREFS_EDIT_CURRENT,
+			self.DEFAULT_EDIT_CURRENT, layout.rowCount() )
+		self.prefsTabAddLabel( layout, _( """<h1>Card Scheduling</h1>
+				Select between Anki's original New card scheduling algorithm and one<br>
+				which shows you a configurable number of New cards in between Old ones.""" ),
+			layout.rowCount() )
+	        combo = self.prefsTabAddComboBox( layout,
+			_("Choose Policy"),
+			self.PREFS_NEW_CARD_POLICY,
+			self.DEFAULT_NEW_CARD_POLICY,
+			[ 'Anki Default', 'New cards mixed in'], layout.rowCount() )
+		prefs.connect(combo, QtCore.SIGNAL("currentIndexChanged(int)"), lambda i: self.newCardDistribution(i))
+		
+		self.slider = self.prefsTabAddSlider( layout,
+			_("Frequency of new cards during review"),
+			self.PREFS_NEW_CARD_DISTRIBUTION,
+			self.DEFAULT_NEW_CARD_DISTRIBUTION,
+			0, 4, 1, 
+			[ _("Old first"), _("1 in 4 new"), _("1 in 2 new"), _("3 in 4 new"), _("New first") ],
+			layout.rowCount() )
+
+		if not self.getConfig( self.PREFS_NEW_CARD_POLICY, self.DEFAULT_NEW_CARD_POLICY ) == self.NC_POLICY_DISTRIBUTE:
+			self.slider.hide()
+
+	def newCardDistribution( self, index ):
+		if index == self.NC_POLICY_DEFAULT:
+			self.slider.hide()
+		elif index == self.NC_POLICY_DISTRIBUTE:
+			self.slider.show()
 
 	def prefsAccept( self, prefs ):
 		RlcDebug.debug( "prefsAccept: called" )
@@ -502,8 +613,9 @@ Old cards are shown.
 			self.prefsCommitCheckBox( self.PREFS_CHECK_FOR_UPDATE )
 		self.prefsCommitCheckBox( self.PREFS_QUIETEN_UPDATE )
 		self.prefsCommitCheckBox( self.PREFS_EDIT_CURRENT )
+		self.prefsCommitComboBox( self.PREFS_NEW_CARD_POLICY )
 		self.prefsCommitSlider( self.PREFS_NEW_CARD_DISTRIBUTION )
-		self.schedulingPolicy.setDistribution( self.prefsGetConfig( self.PREFS_NEW_CARD_DISTRIBUTION )*25 )
+		self.setSchedulingPolicyFromConfig( self.prefsGetConfig )
 		self.prefsCommitCheckBox( self.PREFS_ENABLE_SCRIBBLE )
 		self.extHelp.setScribble( self.prefsGetConfig( self.PREFS_ENABLE_SCRIBBLE ) )
 
@@ -515,16 +627,17 @@ Old cards are shown.
 	def interceptShowEaseButtons( self, mw ):
 		# call original method
 		ExtendAnkiMain.interceptShowEaseButtons( self, mw )
-		if not self.getConfig(self.PREFS_FOCUS_ON_ANSWER):
+		if not self.getConfig(self.PREFS_FOCUS_ON_ANSWER, self.DEFAULT_FOCUS_ON_ANSWER):
 			# now remove focus from answer button
 			mw.setFocus()
 
 	def interceptSetupAutoUpdate( self, mw ):
-		if self.getConfig(self.PREFS_CHECK_FOR_UPDATE):
+		if self.getConfig(self.PREFS_CHECK_FOR_UPDATE, self.DEFAULT_CHECK_FOR_UPDATE):
+			RlcDebug.debug( "Checking for update!" )
 			ExtendAnkiMain.interceptSetupAutoUpdate( self, mw )
 
 	def interceptNewVerAvail( self, mw, version ):
-		if self.getConfig(self.PREFS_QUIETEN_UPDATE):
+		if self.getConfig(self.PREFS_QUIETEN_UPDATE, self.DEFAULT_QUIETEN_UPDATE):
 			mw.statusView.statusbar.showMessage( _("Anki Update Available: ") + version, 5000 )
 		else:
 			ExtendAnkiMain.interceptNewVerAvail( self, mw, version )
@@ -534,7 +647,7 @@ Old cards are shown.
 	########################################
 
 	def interceptSelectLastCard( self, edit ):
-		if self.getConfig(self.PREFS_EDIT_CURRENT):
+		if self.getConfig(self.PREFS_EDIT_CURRENT, self.DEFAULT_EDIT_CURRENT):
 			ExtendAnkiEdit.interceptSelectLastCard( self, edit )
 		else:
 			edit.updateSearch()
