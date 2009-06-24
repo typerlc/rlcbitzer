@@ -10,10 +10,16 @@
 # License:     GPL v3
 # ---------------------------------------------------------------------------
 
-plugin_version = "v0.19"
+plugin_version = "v0.21"
 
 # Changelog:
 # 
+# ---- 0.21 -- 2008-08-27 -- Richard Colley ----
+#   Port to Anki 0.9.7.x
+#   - removed: ease time display, edit window start state, tray icon
+# ---- 0.20 -- 2008-05-31 -- Richard Colley ----
+#   Load kanji tip html in background (and only if changed)
+#   First look at key editor
 # ---- 0.19 -- 2008-05-27 -- Richard Colley ----
 #   Properly fixed Windows minimize to tray
 #   Fixed kanji tip string expansion.
@@ -91,23 +97,6 @@ class AnkiFunctionality(object):
 		except:
 			return False
 	isSuppressUpdateImplemented=classmethod(isSuppressUpdateImplemented)
-
-	def isEditSelectionImplemented( self ):
-		try:
-			if EditDeck.findCardInDeckModel:
-				pass
-			return True
-		except:
-			return False
-	isEditSelectionImplemented=classmethod(isEditSelectionImplemented)
-
-	def isTrayIconImplemented( self ):
-		try:
-			import ankiqt.ui.tray
-			return True
-		except:
-			return False
-	isTrayIconImplemented=classmethod(isTrayIconImplemented)
 
 ############
 
@@ -398,18 +387,10 @@ class ExtendAnkiMain(object):
 				a new version available.
 				<p>If not enabled, a message will be shown in the status bar
 				instead"""
-	PREFS_EASE_SHOW_TIMES = 'rlc.bitzer.answer.showTimes'
-	DEFAULT_EASE_SHOW_TIMES = True
-	TIP_EASE_SHOW_TIMES = """<p>If enabled, time intervals will be shown with each
-				answer button."""
 
 	def __init__( self, extPrefs ):
-		self.origShowEaseButtons = AnkiQt.showEaseButtons
-		AnkiQt.showEaseButtons = lambda main: self.interceptShowEaseButtons( main )
-		self.origShowStandardEaseButtons = AnkiQt.showStandardEaseButtons
-		AnkiQt.showStandardEaseButtons = lambda main,grid,nextInts,text: self.interceptShowStandardEaseButtons( main, grid, nextInts, text )
-		self.origShowCompactEaseButtons = AnkiQt.showCompactEaseButtons
-		AnkiQt.showCompactEaseButtons = lambda main,grid,nextInts: self.interceptShowCompactEaseButtons( main, grid, nextInts )
+                self.origShowEaseButtons = AnkiQt.showEaseButtons
+                AnkiQt.showEaseButtons = lambda main: self.interceptShowEaseButtons( main )
 		if not AnkiFunctionality.isSuppressUpdateImplemented():
 			self.origSetupAutoUpdate = AnkiQt.setupAutoUpdate
 			AnkiQt.setupAutoUpdate = lambda main: self.interceptSetupAutoUpdate( main )
@@ -439,10 +420,6 @@ class ExtendAnkiMain(object):
 				self.DEFAULT_QUIETEN_UPDATE,
 				self.TIP_QUIETEN_UPDATE,
 				)
-		extPrefs.prefsTabAddCheckBox( _("Show interval time with answer buttons"),
-			self.PREFS_EASE_SHOW_TIMES,
-			self.DEFAULT_EASE_SHOW_TIMES,
-			self.TIP_EASE_SHOW_TIMES )
 
 	def acceptPrefs( self, extPrefs ):
 		extPrefs.prefsCommitCheckBox( self.PREFS_FOCUS_ON_ANSWER )
@@ -450,28 +427,12 @@ class ExtendAnkiMain(object):
 			if self.permitUpdateDisable:
 				extPrefs.prefsCommitCheckBox( self.PREFS_CHECK_FOR_UPDATE )
 			extPrefs.prefsCommitCheckBox( self.PREFS_QUIETEN_UPDATE )
-		extPrefs.prefsCommitCheckBox( self.PREFS_EASE_SHOW_TIMES )
 
-	def interceptShowEaseButtons( self, mw ):
+        def interceptShowEaseButtons( self, mw ):
 		self.origShowEaseButtons( mw )
 		if not getConfig(mw.config, self.PREFS_FOCUS_ON_ANSWER, self.DEFAULT_FOCUS_ON_ANSWER):
 			# now remove focus from answer button
 			mw.setFocus()
-
-	def interceptShowStandardEaseButtons( self, mw, grid, nextInts, text ):
-		if not getConfig(mw.config, self.PREFS_EASE_SHOW_TIMES, self.DEFAULT_EASE_SHOW_TIMES):
-			text = (
-			    (_("Completely forgot"), ""),
-				(_("Made a mistake"), ""),
-				(_("Difficult"), ""),
-				(_("About right"), ""),
-				(_("Easy"), "") )
-		return self.origShowStandardEaseButtons( mw, grid, nextInts, text )
-
-	def interceptShowCompactEaseButtons( self, mw, grid, nextInts ):
-		if not getConfig(mw.config, self.PREFS_EASE_SHOW_TIMES, self.DEFAULT_EASE_SHOW_TIMES):
-			nextInts = { "ease0": "", "ease1": "", "ease2": "", "ease3": "", "ease4": "" }
-		return self.origShowCompactEaseButtons( mw, grid, nextInts )
 
 	def interceptSetupAutoUpdate( self, mw ):
 		if not getConfig(mw.config, self.PREFS_CHECK_FOR_UPDATE, self.DEFAULT_CHECK_FOR_UPDATE):
@@ -484,69 +445,25 @@ class ExtendAnkiMain(object):
 		else:
 			self.origNewVerAvail( mw, version )
 
-class ExtendAnkiEdit(object):
-	PREFS_EDIT_CURRENT = 'rlc.bitzer.edit.startupOnlyCurrent'
-	DEFAULT_EDIT_CURRENT = True
-	TIP_EDIT_CURRENT = """<p>If enabled, the Edit Deck window will open with only the
-				current card displayed.
-				<p>Otherwise, all cards are shown, but the cursor is placed
-				on the current card."""
-
-	def __init__( self, extPrefs ):
-		self.origSelectLastCard = EditDeck.selectLastCard
-		EditDeck.selectLastCard = lambda edit: self.interceptSelectLastCard( edit )
-		DeckModel.findCard = lambda model, card: self.findCardInDeckModel( model, card )
-		extPrefs.hookSetup( self.addToPrefsTab )
-		extPrefs.hookAccept( self.acceptPrefs )
-
-	def addToPrefsTab( self, extPrefs ):
-		extPrefs.prefsTabAddLabel( _("<h1>Edit Cards Window</h1>") )
-		extPrefs.prefsTabAddCheckBox( _("Start Edit Deck with only the current card displayed"),
-			self.PREFS_EDIT_CURRENT,
-			self.DEFAULT_EDIT_CURRENT,
-			self.TIP_EDIT_CURRENT
-			)
-
-	def acceptPrefs( self, extPrefs ):
-		extPrefs.prefsCommitCheckBox( self.PREFS_EDIT_CURRENT )
-
-	def findCardInDeckModel( self, model, card ):
-		for i, thisCard in enumerate( model.cards ):
-			if thisCard.id == card.id:
-				return i
-		return -1
-	
-	def interceptSelectLastCard( self, edit ):
-		if getConfig(edit.config, self.PREFS_EDIT_CURRENT, self.DEFAULT_EDIT_CURRENT):
-			self.origSelectLastCard( edit )
-		else:
-			edit.updateSearch()
-			if edit.parent.currentCard:
-				currentCardIndex = self.findCardInDeckModel( edit.model, edit.parent.currentCard )
-				if currentCardIndex >= 0:
-					edit.dialog.tableView.selectRow( currentCardIndex )
-					edit.dialog.tableView.scrollTo( edit.model.index(currentCardIndex,0), edit.dialog.tableView.PositionAtTop )
-					
-
 ######################
 
 import time
 from heapq import heappush, heappop
-from anki.deck import Deck, FutureItem
+from anki.deck import Deck
 import anki
 
 class CardSchedulingPolicy(object):
 	def __init__( self ):
 		pass
-	def getCard( self ):
+	def getCard( self, deck, orm=True ):
 		raise "Must implement this! And return a card"
 		
 class AnkiDefaultSchedulingPolicy( CardSchedulingPolicy ):
 	def __init__( self, default ):
 		CardSchedulingPolicy.__init__( self )
 		self.default = default
-	def getCard( self, deck ):
-		card = self.default( deck )
+	def getCard( self, deck, orm=True ):
+		card = self.default( deck, orm )
 		if card: RlcDebug.debug( "Default returning card: ", card.question )
 		return card
 
@@ -555,124 +472,187 @@ class DistributeNewCardsSchedulingPolicy( CardSchedulingPolicy ):
 		CardSchedulingPolicy.__init__( self )
 		self.distribution = distribution
 		self.totalCardsScheduled = 0
-		self.cardsSinceLastNew = 0
+		self.newCardsScheduled = 0
 
 	def getDistribution( self, distribution ):
 		return self.distribution
 	def setDistribution( self, distribution ):
+		self.totalCardsScheduled = 0
+		self.newCardsScheduled = 0
 		self.distribution = distribution
 
 	def _timeForForcedNew( self, deck ):
 		RlcDebug.debug( "timeForForcedNew(): self.distribution=", self.distribution )
-		RlcDebug.debug( "timeForForcedNew(): self.cardsSinceLastNew=", self.cardsSinceLastNew )
+		RlcDebug.debug( "timeForForcedNew(): self.newCardsScheduled=", self.newCardsScheduled )
+		RlcDebug.debug( "timeForForcedNew(): self.totalCardsScheduled=", self.totalCardsScheduled )
 
 		# avoid division issues
 		if self.distribution == 0:
-			return False
+			rv = False
 		elif self.distribution == 100:
-			return True
+			rv = True
+		elif self.totalCardsScheduled == 0:
+			rv = False
 		else:
-			numCardsInCycle = 100 / self.distribution
-			if numCardsInCycle == 0:
-				return False
-			return ( (self.cardsSinceLastNew+1) % numCardsInCycle ) == 0
+			runningDistribution = (100 * self.newCardsScheduled) / self.totalCardsScheduled
+			RlcDebug.debug( "timeForForcedNew(): runningDistribution=", runningDistribution )
+			rv = runningDistribution < self.distribution
 
-	def getCard( self, deck ):
+		RlcDebug.debug( "timeForForcedNew(): returning ", rv )
+		return rv
+
+	def getCard( self, deck, orm=True ):
 		"Return the next due card, or None"
 
-		isNew = False
+	        ids = self.getCardIds( deck )
+	        if ids:
+	            return deck.cardFromId(ids[0], orm)
 
-		now = time.time()
-		# any expired cards?
-		while deck.futureQueue and deck.futureQueue[0].due <= now:
-		    newItem = heappop(deck.futureQueue)
-		    deck.addExpiredItem(newItem)
-
+	def getCardIds(self, deck, limit=1):
+		"""Return up to LIMIT number of pending card IDs.
+Caller is responsible for checking cards are not spaced if
+limit is above 1."""
+		ids = []
 		# check if we should schedule a new card now
-		if self._timeForForcedNew(deck) and deck.acqQueue:
+		if self._timeForForcedNew(deck):
 		    RlcDebug.debug( "should show a new card" )
-		    RlcDebug.debug( "new cards avail: ", len( deck.acqQueue ) )
-		    item = heappop(deck.acqQueue)
-		    RlcDebug.debug( "popped: ", item )
-		    isNew = True
-		# failed card due?
-		elif (deck.failedQueue and deck.failedQueue[0].due <= now):
-		    item = heappop(deck.failedQueue)
-		# failed card queue too big?
-		elif (deck.failedCardMax and
-		    deck.failedCardsDueSoon() >= deck.failedCardMax):
-		    item = deck.getOldestModifiedFailedCard()
-		# failed card queue too big?
-		# card due for revision
-		elif deck.revQueue:
-		    item = heappop(deck.revQueue)
-		# failed card queue too big?
-		# card due for acquisition
-		elif deck.acqQueue:
-		    item = heappop(deck.acqQueue)
-		    isNew = True
-		else:
-		    if deck.collapsedFailedCards():
-			# final review
-			item = deck.getOldestModifiedFailedCard(collapse=True)
+		    # new card
+		    if deck.newCardOrder == 0:
+			ids += deck.s.column0(
+			    "select id from acqCardsRandom limit 1")
 		    else:
-			return
-		# if it's not failed, check if it's spaced
-		if item.successive or item.reps == 0:
-		    space = deck.itemSpacing(item)
-		    if space > now:
-			# update due time and put it back in future queue
-			item.due = max(item.due, space)
-			item = deck.itemFromItem(FutureItem, item)
-			heappush(deck.futureQueue, item)
-			return deck.getCard()
-		card = deck.s.query(anki.cards.Card).get(item.id)
-		if card:
-			RlcDebug.debug( "Got card: ", card.id )
-			card.genFuzz()
-			card.startTimer()
-			self.totalCardsScheduled=self.totalCardsScheduled+1
-			if isNew:
-			    RlcDebug.debug( "returning NEW card" )
-			    self.cardsSinceLastNew = 0
-			else:
-			    RlcDebug.debug( "returning OLD card" )
-			    self.cardsSinceLastNew = self.cardsSinceLastNew + 1
-		else:
-			RlcDebug.debug( "Something screwy, found item without card! ", item.id )
-		return card
+			ids += deck.s.column0(
+			    "select id from acqCardsOrdered limit 1")
+		    RlcDebug.debug( "popped: ", ids[0] )
+		    self.newCardsScheduled += len(ids)
 
-class SpeedRoundSchedulingPolicy( CardSchedulingPolicy ):
-	def __init__( self ):
-		CardSchedulingPolicy.__init__( self )
+		rem = limit - len(ids)
+		if rem > 0:
+		    # failed card due?
+		    ids += deck.s.column0("select id from failedCardsNow limit %d" % limit)
+		rem = limit - len(ids)
+		if rem > 0:
+		    # failed card queue too big?
+		    if deck.failedCount >= deck.failedCardMax:
+			ids += deck.s.column0(
+			    "select id from failedCardsSoon limit %d" % rem)
+		rem = limit - len(ids)
+		if rem > 0:
+		    # card due for review?
+		    ids += deck.s.column0("select id from revCards limit %d" % rem)
+		rem = limit - len(ids)
+		if rem > 0:
+		    # new card
+		    if deck.newCardOrder == 0:
+			newids += deck.s.column0(
+			    "select id from acqCardsRandom limit %d" % rem)
+		    else:
+			newids += deck.s.column0(
+			    "select id from acqCardsOrdered limit %d" % rem)
+		    ids += newids
+		    self.newCardsScheduled += len(newids)
+		if not ids:
+		    if deck.collapseTime:
+			# final review
+			ids += deck.s.column0(
+			    "select id from failedCardsSoon limit %d" % rem)
 
-	def getCard( self, deck ):
-		"Return the next card, due or not"
+		if ids:
+			RlcDebug.debug( "Got card(s): ", ids )
+			self.totalCardsScheduled=self.totalCardsScheduled+len(ids)
+		return ids
 
-		item = None
-
-		while deck.futureQueue:
-		    newItem = heappop(deck.futureQueue)
-		    deck.addExpiredItem(newItem)
-
-		# failed card due?
-		if deck.failedQueue:
-		    item = heappop(deck.failedQueue)
-		# card due for revision
-		elif deck.revQueue:
-		    item = heappop(deck.revQueue)
-		# card due for acquisition
-		elif deck.acqQueue:
-		    item = heappop(deck.acqQueue)
-
-		if not item:
-			return
-
-		card = deck.s.query(anki.cards.Card).get(item.id)
-		if card:
-			card.genFuzz()
-			card.startTimer()
-		return card
+#class SpeedRoundSchedulingPolicy( CardSchedulingPolicy ):
+#	def __init__( self ):
+#		CardSchedulingPolicy.__init__( self )
+#
+#	def getCard( self, deck, orm=True ):
+#		"Return the next due card, or None"
+#
+#	        ids = self.getCardIds( deck )
+#	        if ids:
+#	            return deck.cardFromId(ids[0], orm)
+#
+#	def getCardIds(self, deck, limit=1):
+#		"""Return up to LIMIT number of pending card IDs.
+#Caller is responsible for checking cards are not spaced if
+#limit is above 1."""
+#		ids = []
+#		# check if we should schedule a new card now
+#		if self._timeForForcedNew(deck):
+#		    RlcDebug.debug( "should show a new card" )
+#		    # new card
+#		    if deck.newCardOrder == 0:
+#			ids += deck.s.column0(
+#			    "select id from acqCardsRandom limit 1")
+#		    else:
+#			ids += deck.s.column0(
+#			    "select id from acqCardsOrdered limit 1")
+#		    RlcDebug.debug( "popped: ", ids[0] )
+#		    self.newCardsScheduled += len(ids)
+#
+#		rem = limit - len(ids)
+#		if rem > 0:
+#		    # failed card due?
+#		    ids += deck.s.column0("select id from failedCardsNow limit %d" % limit)
+#		rem = limit - len(ids)
+#		if rem > 0:
+#		    # failed card queue too big?
+#		    if deck.failedCount >= deck.failedCardMax:
+#			ids += deck.s.column0(
+#			    "select id from failedCardsSoon limit %d" % rem)
+#		rem = limit - len(ids)
+#		if rem > 0:
+#		    # card due for review?
+#		    ids += deck.s.column0("select id from revCards limit %d" % rem)
+#		rem = limit - len(ids)
+#		if rem > 0:
+#		    # new card
+#		    if deck.newCardOrder == 0:
+#			newids += deck.s.column0(
+#			    "select id from acqCardsRandom limit %d" % rem)
+#		    else:
+#			newids += deck.s.column0(
+#			    "select id from acqCardsOrdered limit %d" % rem)
+#		    ids += newids
+#		    self.newCardsScheduled += len(newids)
+#		if not ids:
+#		    if deck.collapseTime:
+#			# final review
+#			ids += deck.s.column0(
+#			    "select id from failedCardsSoon limit %d" % rem)
+#
+#		if ids:
+#			RlcDebug.debug( "Got card(s): ", ids )
+#			self.totalCardsScheduled=self.totalCardsScheduled+len(ids)
+#		return ids
+#	def getCard( self, deck, orm=True ):
+#		"Return the next card, due or not"
+#
+#		item = None
+#
+#		while deck.futureQueue:
+#		    newItem = heappop(deck.futureQueue)
+#		    deck.addExpiredItem(newItem)
+#
+#		# failed card due?
+#		if deck.failedQueue:
+#		    item = heappop(deck.failedQueue)
+#		# card due for revision
+#		elif deck.revQueue:
+#		    item = heappop(deck.revQueue)
+#		# card due for acquisition
+#		elif deck.acqQueue:
+#		    item = heappop(deck.acqQueue)
+#
+#		if not item:
+#			return
+#
+#		card = deck.s.query(anki.cards.Card).get(item.id)
+#		if card:
+#			card.genFuzz()
+#			card.startTimer()
+#		return card
 
 class ExtendAnkiScheduling(object):
 	# types of new card scheduling policy
@@ -698,7 +678,7 @@ class ExtendAnkiScheduling(object):
 
 	def __init__( self, extPrefs, config ):
 		self.oldDeckGetCard = Deck.getCard
-		Deck.getCard = lambda deck : self.interceptDeckGetCard( deck )
+		Deck.getCard = lambda deck, orm=True : self.interceptDeckGetCard( deck, orm )
 		self.defaultPolicy = AnkiDefaultSchedulingPolicy( self.oldDeckGetCard )
 		self.setSchedulingPolicyFromConfig( config )
 		extPrefs.hookSetup( self.addToPrefsTab )
@@ -709,7 +689,8 @@ class ExtendAnkiScheduling(object):
 	        combo = extPrefs.prefsTabAddComboBox( _("Choose Policy"),
 			self.PREFS_NEW_CARD_POLICY,
 			self.DEFAULT_NEW_CARD_POLICY,
-			[ 'Anki Default', 'New cards mixed in', 'Ignore card timing' ],
+			#[ 'Anki Default', 'New cards mixed in', 'Ignore card timing' ], #with Speed-round
+			[ 'Anki Default', 'New cards mixed in' ],
 			self.TIP_NEW_CARD_POLICY
 			)
 		extPrefs.prefs.connect(combo, QtCore.SIGNAL("currentIndexChanged(int)"), lambda i: self.policySelected(i))
@@ -737,18 +718,19 @@ class ExtendAnkiScheduling(object):
 	def setSchedulingPolicy( self, schedulingPolicy ):
 		self.schedulingPolicy = schedulingPolicy
 
-	def interceptDeckGetCard( self, deck ):
+	def interceptDeckGetCard( self, deck, orm=True ):
 		RlcDebug.debug( "deck get card" )
-		return self.schedulingPolicy.getCard( deck )
+		return self.schedulingPolicy.getCard( deck, orm )
 
 	def setSchedulingPolicyFromConfig( self, config ):
 		policy = getConfig( config, self.PREFS_NEW_CARD_POLICY, self.DEFAULT_NEW_CARD_POLICY )
 		if policy == self.NC_POLICY_DISTRIBUTE:
+			pass
 			self.schedulingPolicy = DistributeNewCardsSchedulingPolicy(
 				getConfig( config, self.PREFS_NEW_CARD_DISTRIBUTION,
 						self.DEFAULT_NEW_CARD_DISTRIBUTION) * 25 )
-		elif policy == self.NC_POLICY_SPEEDROUND:
-			self.schedulingPolicy = SpeedRoundSchedulingPolicy()
+#		elif policy == self.NC_POLICY_SPEEDROUND:
+#			self.schedulingPolicy = SpeedRoundSchedulingPolicy()
 		else:
 			self.schedulingPolicy = self.defaultPolicy
 
@@ -1004,7 +986,7 @@ class AnkiPersonalTrainer(object):
 	def sessionTimeExpired( self ):
 		if self.time_limit:
 			now = time.time()
-			if now - self.sessionStart > self.time_limit_value:
+			if now - self.sessionStart > self.time_limit_value * 60:
 				return True
 			else:
 				return False
@@ -1056,128 +1038,7 @@ class AnkiPersonalTrainer(object):
 
 ###############################################
 
-class AnkiTrayIcon( QtCore.QObject ):
-	"""
-	Enable minimize to tray
-	"""
-
-	PREFS_TRAY_ENABLE = 'rlc.bitzer.tray.enable'
-	DEFAULT_TRAY_ENABLE = False
-	TIP_TRAY_ENABLE = """<p>Enable support for minimising Anki to the icon tray.
-			<p>If this is enabled, the Anki icon will be displayed in the system
-			icon tray.  If you click on the icon, the Anki window will be hidden.
-			Click again on the icon to re-display Anki.
-			<p>When questions are due, a pop-up box will be displayed to remind
-			you."""
-	def __init__( self, extPrefs, mw ):
-		QtCore.QObject.__init__( self, mw )
-		self.mw = mw
-		self.anki_visible = True
-		if QtGui.QSystemTrayIcon.isSystemTrayAvailable():
-			self.ti = QtGui.QSystemTrayIcon( mw )
-			if self.ti:
-				self.ti.setIcon( QtGui.QIcon(":/icons/anki.png") )
-				self.ti.setToolTip( "Anki" )
-
-				# hook signls, and Anki state changes
-				mw.addView( self )
-				mw.connect(self.ti, QtCore.SIGNAL("activated(QSystemTrayIcon::ActivationReason)"), lambda i: self.activated(i))
-				mw.connect(self.ti, QtCore.SIGNAL("messageClicked()"), lambda : self.messageClicked())
-
-				self.setFromConfig( self.mw.config )
-				extPrefs.hookSetup( self.addToPrefsTab )
-				extPrefs.hookAccept( self.acceptPrefs )
-
-				# intercept events (to detect minimise event)
-				mw.installEventFilter( self )
-
-	def addToPrefsTab( self, extPrefs ):
-		self.ptCheck = extPrefs.prefsTabAddCheckBox( _("Enable tray icon"),
-			self.PREFS_TRAY_ENABLE,
-			self.DEFAULT_TRAY_ENABLE,
-			self.TIP_TRAY_ENABLE,
-			)
-		self.ptCheckChanged( self.ptCheck.isChecked() )
-
-	def acceptPrefs( self, extPrefs ):
-		extPrefs.prefsCommitCheckBox( self.PREFS_TRAY_ENABLE )
-		self.setFromConfig( extPrefs.prefs.config )
-
-	def setFromConfig( self, config ):
-		enable = getConfig( config, self.PREFS_TRAY_ENABLE, self.DEFAULT_TRAY_ENABLE )
-		self.ptCheckChanged( enable )
-
-	def ptCheckChanged( self, state ):
-		if state:
-			if self.ti:
-				self.ti.show()
-		else:
-			if self.ti:
-				self.ti.hide()
-
-	def showMain( self ):
-		self.mw.showNormal()
-		self.mw.activateWindow()
-		self.mw.raise_()
-		self.anki_visible = True
-
-	def hideMain( self ):
-		self.mw.hide()
-		self.anki_visible = False
-
-	def activated( self, reason ):
-		if self.anki_visible:
-			self.hideMain()
-		else:
-			self.showMain()
-
-	def messageClicked( self ):
-		if not self.anki_visible:
-			self.showMain()
-
-	def setToolTip( self, message ):
-		self.ti.setToolTip( message )
-
-	def showMessage( self, message ):
-		if self.ti.supportsMessages():
-			self.ti.showMessage( "Anki", message )
-
-	def setState( self, state ):
-		RlcDebug.debug( "AnkiTrayIcon::setState(): state=" + state )
-		if state == "showQuestion":
-			if not self.anki_visible:
-				self.showMessage( "A new card is available for review, click this message to display Anki" )
-			self.setToolTip( "Anki - displaying question" )
-		elif state == "showAnswer":
-			self.setToolTip( "Anki - displaying answer" )
-		elif state == "noDeck":
-			self.setToolTip( "Anki - no deck" )
-		elif state == "deckFinished":
-			if self.mw and self.mw.deck:
-				self.setToolTip( "Anki - next card in " + self.mw.deck.earliestTimeStr() )
-		else:
-			self.setToolTip( "Anki" )
-
-	def getEnabled( self, config ):
-		return getConfig( config, self.PREFS_TRAY_ENABLE, self.DEFAULT_TRAY_ENABLE )
-
-	def eventFilter( self, obj, event ):
-		if self.getEnabled( self.mw.config ) and self.parent() == obj:
-			if event.type() == QtCore.QEvent.WindowStateChange:
-				if self.ti and obj.windowState() & Qt.WindowMinimized:
-					# for Windows, need to delay the hideMain() call otherwise
-					# Windows gets its knickers in a knot.
-					QtCore.QTimer.singleShot( 100, self.hideMain  );
-					return True
-			elif event.type() == QtCore.QEvent.Close:
-				if self.ti:
-					self.ti.hide()
-
-		return QtCore.QObject.eventFilter(self, obj, event)
-
-
-###############################################
-
+import threading
 class ExtendToolTips(QtCore.QObject):
 	"""
 	Show info on characters hovered over.
@@ -1235,8 +1096,12 @@ class ExtendToolTips(QtCore.QObject):
 
 		self.w.setVisible(self.getEnabled(mw.config))
 
-		self.lastSelected = None
+		self.lastMovie = None
+		self.lastHtml = None
 		self.movie = None
+		self.tipLoading = False
+
+		self.connect(self, QtCore.SIGNAL("tipLoaded"), self.tipLoaded)
 
 		extPrefs.hookSetup( self.addToPrefsTab )
 		extPrefs.hookAccept( self.acceptPrefs )
@@ -1290,7 +1155,6 @@ class ExtendToolTips(QtCore.QObject):
 		return getConfig(config, self.PREFS_TIPS_HTML_VALUE, self.DEFAULT_TIPS_HTML_VALUE)
 
 	def expandString( self, specStr, char, word ):
-		self.lastSelected = char
 		# map from tag->(value,description)
 		selText = {
 		  'char': unicode(char),
@@ -1301,6 +1165,31 @@ class ExtendToolTips(QtCore.QObject):
 		  'word-url': repr(unicode(word).encode('utf8')).replace('\\x','%').strip("u'"),
 		}
 		return unicode(specStr) % selText
+
+	def tipLoaded( self, html ):
+		try:
+			self.tip.setHtml( unicode(html, 'utf8') )
+		except:
+			self.tip.setText( "Failed!\n" + html )
+
+	def loadHtmlTip( self, url ):
+		if self.tipLoading:
+			return
+		self.tipLoading = True
+		try:
+			import urllib
+			RlcDebug.debug( "Loading URL: ", url )
+			f = urllib.urlopen( url )
+			html = f.read()
+		except Exception, e:
+			html="""Can't load: %s
+Due to exception: %s
+""" % ( url, e )
+			RlcDebug.debug( "failed to load: ", html )
+		self.emit(QtCore.SIGNAL("tipLoaded"), html)
+
+		self.tipLoading = False
+
 
 	def hookQtEvents( self, parent ):
 		self.setParent(parent)
@@ -1317,27 +1206,29 @@ class ExtendToolTips(QtCore.QObject):
 				tc.movePosition( tc.Left, tc.MoveAnchor )
 			tc.clearSelection()
 			tc.movePosition( tc.Right, tc.KeepAnchor )
-			if tc.hasSelection() and tc.selectedText() != self.lastSelected:
+			if tc.hasSelection():
 				char = tc.selectedText()
 				tc.select( tc.WordUnderCursor )
 				word = tc.selectedText()
 				try:
 					movieSpecString = self.getMovieValue(self.mw.config)
 					movieName = self.expandString( movieSpecString, char, word )
-					RlcDebug.debug( "Loading movie: ", movieName )
-					self.movie = QtGui.QMovie( movieName )
-					self.movieLabel.setMovie( self.movie )
-					self.movie.start()
+					if movieName != self.lastMovie:
+						self.lastMovie = movieName
+						RlcDebug.debug( "Loading movie: ", movieName )
+						self.movie = QtGui.QMovie( movieName )
+						self.movieLabel.setMovie( self.movie )
+						self.movie.start()
 				except Exception, e:
 					pass
 
 				try:
 					htmlSpecString = self.getHtmlValue(self.mw.config)
 					htmlName = self.expandString( htmlSpecString, char, word )
-					RlcDebug.debug( "Loading URL: ", htmlName )
-					import urllib
-					html = urllib.urlopen( htmlName )
-					self.tip.setHtml( unicode(html.read(), 'utf8') )
+					if not self.tipLoading and char != "" and word != "" and htmlName != self.lastHtml:
+						self.lastHtml = htmlName
+						self.tip.setHtml( "Loading %s ... " % htmlName )
+						threading.Thread( None, lambda url=htmlName: self.loadHtmlTip( url ) ).start()
 				except Exception, e:
 					self.tip.setText( """Can't load: %s
 Due to exception: %s
@@ -1363,11 +1254,6 @@ class RlcBitzer( object ):
 		self.extMain = ExtendAnkiMain( self.extPrefs )
 		self.extHelp = ExtendAnkiHelp( self.extPrefs, self.mw )
 		self.extToolTips = ExtendToolTips( self.extPrefs, self.mw )
-		if not AnkiFunctionality.isTrayIconImplemented():
-			self.trayIcon = AnkiTrayIcon( self.extPrefs, self.mw )
-
-		if not AnkiFunctionality.isEditSelectionImplemented():
-			self.extEdit = ExtendAnkiEdit( self.extPrefs )
 		self.extScheduler = ExtendAnkiScheduling( self.extPrefs, self.mw.config )
 		self.personalTrainer = AnkiPersonalTrainer( self.extPrefs, self.mw )
 
