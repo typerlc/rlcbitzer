@@ -7,14 +7,24 @@
 # Description: 
 #
 # Author:      Richard Colley (richard.colley@rcolley.com)
-# Version:     0.09a (2008-04-17)
+# Version:     0.09 (2008-03-31)
 # License:     GPL
 # ---------------------------------------------------------------------------
 # Changelog:
-# ---- 0.09a -- 2008-04-17 -- Richard Colley ----
-#   some debug statements caused crash
+# 
+# ---- 0.13 -- 2008-04-19 -- Richard Colley ----
+#   Finished first pass of personal trainer.
+# ---- 0.12 -- 2008-04-19 -- Richard Colley ----
+#   Added new scheduling policy ... speedround.
+#   This just keeps showing cards until the users stops.
+#   Implications for future scheduling are unknown, but it looks ok.
+#   No warranties!! :)
+# ---- 0.11 -- 2008-04-03 -- Richard Colley ----
+#   Added personal trainer ... unfinished
+# ---- 0.10 -- 2008-04-02 -- Richard Colley ----
+#   Refactored extension classes
 # ---- 0.09 -- 2008-03-31 -- Richard Colley ----
-#   changed all to new-style classes
+#   Changed all to new-style classes
 # ---- 0.08 -- 2008-03-31 -- Richard Colley ----
 #   added combo box to choose new card scheduling policy
 # ---- 0.07 -- 2008-03-30 -- Richard Colley ----
@@ -43,6 +53,35 @@ from ankiqt import mw
 from ankiqt.ui.main import AnkiQt
 from ankiqt.ui.cardlist import EditDeck, DeckModel
 from ankiqt.ui.preferences import Preferences
+from ankiqt.ui.utils import askUser
+
+############
+
+# based on anki hook stuff
+class Hooks(object):
+	def __init__( self ):
+		self.setupHooks()
+
+	def setupHooks(self):
+		self.hooks = {}
+
+	def addHook(self, hookName, func):
+		if not self.hooks.get(hookName, None):
+			self.hooks[hookName] = []
+		if func not in self.hooks[hookName]:
+			self.hooks[hookName].append(func)
+
+	def removeHook(self, hookName, func):
+		hook = self.hooks.get(hookName, [])
+		if func in hook:
+			hook.remove(func)
+
+	def runHook(self, hookName, *args):
+		hook = self.hooks.get(hookName, None)
+		if hook:
+			for func in hook:
+				func(*args)
+
 
 
 ############ Debug stuff
@@ -77,48 +116,66 @@ class RlcDebug(object):
 
 #####################
 
-class ExtendAnkiPrefs(object):
-	def __init__( self ):
+# Config stuff
+def getConfig( dict, itemName, defaultValue=None ):
+	if dict.has_key( itemName ):
+		return dict[itemName]
+	else:
+		return defaultValue
+
+def getConfigInt( dict, itemName, defaultValue=None ):
+	if dict.has_key( itemName ):
+		return int(dict[itemName])
+	else:
+		return int(defaultValue)
+
+def setConfig( dict, itemName, value ):
+	dict[itemName] = value
+
+
+#####################
+
+class ExtendAnkiPrefs(Hooks):
+	def __init__( self, name ):
+		Hooks.__init__( self )
+
+                self.name = name
+
 		self.tabItems = {}
 		self.origSetupAdvanced = Preferences.setupAdvanced
 		self.origPrefsAccept = Preferences.accept
 		self.origPrefsReject = Preferences.reject
-		Preferences.setupAdvanced = lambda prefs: self.__interceptSetupAdvanced( prefs )
-		Preferences.accept = lambda prefs: self.__interceptPrefsAccept( prefs )
-		Preferences.reject = lambda prefs: self.__interceptPrefsReject( prefs )
+		Preferences.setupAdvanced = lambda prefs: self.interceptSetupAdvanced( prefs )
+		Preferences.accept = lambda prefs: self.interceptPrefsAccept( prefs )
+		Preferences.reject = lambda prefs: self.interceptPrefsReject( prefs )
 
-	# probably shouldn't touch these
-	def __interceptSetupAdvanced( self, prefs ):
-		self.config = prefs.config
+	def hookSetup( self, func ):
+		self.addHook( 'setup', func )
+	def hookAccept( self, func ):
+		self.addHook( 'accept', func )
+	def hookReject( self, func ):
+		self.addHook( 'reject', func )
+
+	def interceptSetupAdvanced( self, prefs ):
+		self.prefs = prefs
+                self.prefsAddTab( self.name )
 		self.origSetupAdvanced( prefs )
-		self.prefsSetup( prefs )
-	def __interceptPrefsAccept( self, prefs ):
-		self.config = prefs.config
-		self.prefsAccept( prefs )
+		self.runHook( 'setup', self )
+	def interceptPrefsAccept( self, prefs ):
+		self.runHook( 'accept', self )
 		self.origPrefsAccept( prefs )
-	def __interceptPrefsReject( self, prefs ):
-		self.config = prefs.config
-		self.prefsReject( prefs )
+	def interceptPrefsReject( self, prefs ):
+		self.runHook( 'reject', self )
 		self.origPrefsReject( prefs )
-		
-	# over-ride these
-	def prefsSetup( self, prefs ):
-		pass
-		
-	def prefsAccept( self, prefs ):
-		pass
-	
-	def prefsReject( self, prefs ):
-		pass
 
 	def prefsGetConfig( self, itemName, defaultValue=None ):
-		if self.config.has_key( itemName ):
-			return self.config[itemName]
+		if self.prefs.config.has_key( itemName ):
+			return self.prefs.config[itemName]
 		else:
 			return defaultValue
 
 	def prefsSetConfig( self, itemName, value ):
-		self.config[itemName] = value
+		self.prefs.config[itemName] = value
 
 	def prefsGetItem( self, itemName ):
 		return self.tabItems[itemName]
@@ -126,6 +183,10 @@ class ExtendAnkiPrefs(object):
 	def prefsCommitCheckBox( self, itemName ):
 		checkBox = self.prefsGetItem( itemName )
 		self.prefsSetConfig( itemName, checkBox.isChecked() )
+
+	def prefsCommitIntegerBox( self, itemName ):
+		item = self.prefsGetItem( itemName )
+		self.prefsSetConfig( itemName, item.text() )
 
 	def prefsCommitSlider( self, itemName ):
 		slider = self.prefsGetItem( itemName )
@@ -136,40 +197,62 @@ class ExtendAnkiPrefs(object):
 		self.prefsSetConfig( itemName, combo.currentIndex() )
 
 	# UI stuff
-	def prefsAddTab( self, prefs, tabTitle ):
+	def prefsAddTab( self, tabTitle ):
 		self.tabTitle = tabTitle
 		self.rlcPrefsTab = QtGui.QWidget()
 		self.rlcPrefsTab.setObjectName( "rlcPrefsTab" )
-		self.rlcPrefsTabVboxLayout = QtGui.QVBoxLayout(self.rlcPrefsTab)
-		self.rlcPrefsTabVboxLayout.setObjectName("rlcPrefsTabVboxLayout")
+		vboxLayout = QtGui.QVBoxLayout(self.rlcPrefsTab)
+		vboxLayout.setObjectName("rlcPrefsTabVboxLayout")
 
-		self.rlcPrefsGridLayout = QtGui.QGridLayout()
-		self.rlcPrefsGridLayout.setObjectName("rlcPrefsGridLayout")
+		self.layout = QtGui.QGridLayout()
+		self.layout.setObjectName("rlcPrefsGridLayout")
 
-		self.rlcPrefsTabVboxLayout.addLayout(self.rlcPrefsGridLayout)
+		vboxLayout.addLayout(self.layout)
 		spacerItem1 = QtGui.QSpacerItem(20,40,QtGui.QSizePolicy.Minimum,QtGui.QSizePolicy.Expanding)
-		self.rlcPrefsTabVboxLayout.addItem(spacerItem1)
+		vboxLayout.addItem(spacerItem1)
 
-		prefs.dialog.tabWidget.addTab(self.rlcPrefsTab,self.tabTitle)
-		return self.rlcPrefsGridLayout
+		self.prefs.dialog.tabWidget.addTab(self.rlcPrefsTab,self.tabTitle)
+		return self.layout
 
-	def prefsTabAddLabel( self, layout, labelText, row, col=0, rowSpan=1, colSpan=-1 ):
+	def prefsTabAddLabel( self, labelText, row=None, col=0, rowSpan=1, colSpan=-1 ):
 		label = QtGui.QLabel()
 		label.setText( labelText )
-		layout.addWidget(label,row,col,rowSpan,colSpan)
+		if row == None:
+			row = self.layout.rowCount()
+		self.layout.addWidget(label,row,col,rowSpan,colSpan)
 		return label
 
-	def prefsTabAddCheckBox( self, layout, label, itemName, defaultValue, row, col=0, rowSpan=1, colSpan=-1 ):
+	def prefsTabAddCheckBox( self, label, itemName, defaultValue, row=None, col=0, rowSpan=1, colSpan=-1 ):
 		checkBox = QtGui.QCheckBox()
 		checkBox.setObjectName( itemName )
 		checkBox.setText( label )
 
 		checkBox.setChecked( self.prefsGetConfig( itemName, defaultValue ) )
 		self.tabItems[itemName] = checkBox
-		layout.addWidget(checkBox,row,col,rowSpan,colSpan)
+		if row == None:
+			row = self.layout.rowCount()
+		self.layout.addWidget(checkBox,row,col,rowSpan,colSpan)
 		return checkBox
 
-	def prefsTabAddSlider( self, layout, label, itemName, defaultValue, min, max, step, legend, row, col=0, rowSpan=1, colSpan=-1 ):
+	def prefsTabAddIntegerBox( self, label, itemName, defaultValue, min, max, row=None, col=0, rowSpan=1, colSpan=-1 ):
+		textLine = QtGui.QLineEdit()
+		textLine.setObjectName( itemName )
+
+		validator = QtGui.QIntValidator(None)
+		if min != None:
+			validator.setBottom( min )
+		if max != None:
+			validator.setTop( max )
+		textLine.setValidator( validator )
+
+		textLine.setText( QtCore.QString( str( self.prefsGetConfig(itemName, defaultValue) ) ) )
+		self.tabItems[itemName] = textLine
+		if row == None:
+			row = self.layout.rowCount()
+		self.layout.addWidget(textLine,row,col,rowSpan,colSpan)
+		return textLine
+
+	def prefsTabAddSlider( self, label, itemName, defaultValue, min, max, step, legend, row=None, col=0, rowSpan=1, colSpan=-1 ):
 		slider = QtGui.QSlider()
 		slider.setOrientation( Qt.Horizontal )
 		slider.setTickPosition(QtGui.QSlider.TicksBelow)
@@ -199,19 +282,33 @@ class ExtendAnkiPrefs(object):
 				gl.addWidget(label,1,col+i,1,1)
 		else:
 			comp=slider
-		layout.addWidget(comp,row,col,rowSpan,colSpan)
+		if row == None:
+			row = self.layout.rowCount()
+		self.layout.addWidget(comp,row,col,rowSpan,colSpan)
 		return comp
 
-	def prefsTabAddComboBox( self, layout, label, itemName, defaultValue, optionList, row, col=0, rowSpan=1, colSpan=-1 ):
+	def prefsTabAddComboBox( self, label, itemName, defaultValue, optionList, row=None, col=0, rowSpan=1, colSpan=-1 ):
 		combo = QtGui.QComboBox()
 		combo.addItems( optionList )
 		combo.setCurrentIndex( self.prefsGetConfig( itemName, defaultValue ) )
 		self.tabItems[itemName] = combo
-		layout.addWidget(combo,row,col,rowSpan,colSpan)
+		if row == None:
+			row = self.layout.rowCount()
+		self.layout.addWidget(combo,row,col,rowSpan,colSpan)
 		return combo
 
 class ExtendAnkiMain(object):
-	def __init__( self ):
+	# set to 1 to allow update checks to be completely disabled by user
+	permitUpdateDisable = 0
+
+	PREFS_FOCUS_ON_ANSWER = 'rlc.bitzer.answer.focusOnButton'
+	DEFAULT_FOCUS_ON_ANSWER = True
+	PREFS_CHECK_FOR_UPDATE = 'rlc.bitzer.update.check'
+	DEFAULT_CHECK_FOR_UPDATE = True
+	PREFS_QUIETEN_UPDATE = 'rlc.bitzer.update.quieten'
+	DEFAULT_QUIETEN_UPDATE = False
+
+	def __init__( self, extPrefs ):
 		self.origShowEaseButtons = AnkiQt.showEaseButtons
 		AnkiQt.showEaseButtons = lambda main: self.interceptShowEaseButtons( main )
 		self.origSetupAutoUpdate = AnkiQt.setupAutoUpdate
@@ -219,29 +316,84 @@ class ExtendAnkiMain(object):
 		self.origNewVerAvail = AnkiQt.newVerAvail
 		AnkiQt.newVerAvail = lambda main, version: self.interceptNewVerAvail( main, version )
 
-	def interceptShowEaseButtons( self, main ):
-		self.origShowEaseButtons( main )
+		# add to preferences tab
+		extPrefs.hookSetup( self.addToPrefsTab )
+		extPrefs.hookAccept( self.acceptPrefs )
 
-	def interceptSetupAutoUpdate( self, main ):
-		self.origSetupAutoUpdate( main )
 
-	def interceptNewVerAvail( self, main, version ):
-		self.origNewVerAvail( main, version )
+	def addToPrefsTab( self, extPrefs ):
+		extPrefs.prefsTabAddLabel( _("<h1>Main Window Settings</h1>") )
+		extPrefs.prefsTabAddCheckBox( _("Focus on answer"),
+			self.PREFS_FOCUS_ON_ANSWER,
+			self.DEFAULT_FOCUS_ON_ANSWER )
+		if self.permitUpdateDisable:
+			extPrefs.prefsTabAddCheckBox( _("Check for Anki updates"),
+				self.PREFS_CHECK_FOR_UPDATE,
+				self.DEFAULT_CHECK_FOR_UPDATE )
+		extPrefs.prefsTabAddCheckBox( _("Suppress update dialog"),
+			self.PREFS_QUIETEN_UPDATE,
+			self.DEFAULT_QUIETEN_UPDATE )
+
+	def acceptPrefs( self, extPrefs ):
+		extPrefs.prefsCommitCheckBox( self.PREFS_FOCUS_ON_ANSWER )
+		if self.permitUpdateDisable:
+			extPrefs.prefsCommitCheckBox( self.PREFS_CHECK_FOR_UPDATE )
+		extPrefs.prefsCommitCheckBox( self.PREFS_QUIETEN_UPDATE )
+
+	def interceptShowEaseButtons( self, mw ):
+		self.origShowEaseButtons( mw )
+		if not getConfig(mw.config, self.PREFS_FOCUS_ON_ANSWER, self.DEFAULT_FOCUS_ON_ANSWER):
+			# now remove focus from answer button
+			mw.setFocus()
+
+	def interceptSetupAutoUpdate( self, mw ):
+		if getConfig(mw.config, self.PREFS_CHECK_FOR_UPDATE, self.DEFAULT_CHECK_FOR_UPDATE):
+			RlcDebug.debug( "Checking for update!" )
+			self.origSetupAutoUpdate( mw )
+
+	def interceptNewVerAvail( self, mw, version ):
+		if getConfig(mw.config, self.PREFS_QUIETEN_UPDATE, self.DEFAULT_QUIETEN_UPDATE):
+			mw.statusView.statusbar.showMessage( _("Anki Update Available: ") + version, 5000 )
+		else:
+			self.origNewVerAvail( mw, version )
 
 class ExtendAnkiEdit(object):
-	def __init__( self ):
+	PREFS_EDIT_CURRENT = 'rlc.bitzer.edit.startupOnlyCurrent'
+	DEFAULT_EDIT_CURRENT = True
+
+	def __init__( self, extPrefs ):
 		self.origSelectLastCard = EditDeck.selectLastCard
 		EditDeck.selectLastCard = lambda edit: self.interceptSelectLastCard( edit )
 		DeckModel.findCard = lambda model, card: self.findCardInDeckModel( model, card )
+		extPrefs.hookSetup( self.addToPrefsTab )
+		extPrefs.hookAccept( self.acceptPrefs )
 
-	def interceptSelectLastCard( self, edit ):
-		self.origSelectLastCard( edit )
-		
+	def addToPrefsTab( self, extPrefs ):
+		extPrefs.prefsTabAddLabel( _("<h1>Edit Cards Window</h1>") )
+		extPrefs.prefsTabAddCheckBox( _("Start Edit Deck with only the current card displayed"),
+			self.PREFS_EDIT_CURRENT,
+			self.DEFAULT_EDIT_CURRENT )
+
+	def acceptPrefs( self, extPrefs ):
+		extPrefs.prefsCommitCheckBox( self.PREFS_EDIT_CURRENT )
+
 	def findCardInDeckModel( self, model, card ):
 		for i, thisCard in enumerate( model.cards ):
 			if thisCard.id == card.id:
 				return i
 		return -1
+	
+	def interceptSelectLastCard( self, edit ):
+		if getConfig(edit.config, self.PREFS_EDIT_CURRENT, self.DEFAULT_EDIT_CURRENT):
+			self.origSelectLastCard( edit )
+		else:
+			edit.updateSearch()
+			if edit.parent.currentCard:
+				currentCardIndex = self.findCardInDeckModel( edit.model, edit.parent.currentCard )
+				if currentCardIndex >= 0:
+					edit.dialog.tableView.selectRow( currentCardIndex )
+					edit.dialog.tableView.scrollTo( edit.model.index(currentCardIndex,0), edit.dialog.tableView.PositionAtTop )
+					
 
 ######################
 
@@ -343,24 +495,105 @@ class DistributeNewCardsSchedulingPolicy( CardSchedulingPolicy ):
 			heappush(deck.futureQueue, item)
 			return deck.getCard()
 		card = deck.s.query(anki.cards.Card).get(item.id)
-		if card: RlcDebug.debug( "Got card: ", card.id )
-		card.genFuzz()
-		card.startTimer()
-		self.totalCardsScheduled=self.totalCardsScheduled+1
-		if isNew:
-		    RlcDebug.debug( "returning NEW card" )
-		    self.cardsSinceLastNew = 0
+		if card:
+			RlcDebug.debug( "Got card: ", card.id )
+			card.genFuzz()
+			card.startTimer()
+			self.totalCardsScheduled=self.totalCardsScheduled+1
+			if isNew:
+			    RlcDebug.debug( "returning NEW card" )
+			    self.cardsSinceLastNew = 0
+			else:
+			    RlcDebug.debug( "returning OLD card" )
+			    self.cardsSinceLastNew = self.cardsSinceLastNew + 1
 		else:
-		    RlcDebug.debug( "returning OLD card" )
-		    self.cardsSinceLastNew = self.cardsSinceLastNew + 1
+			RlcDebug.debug( "Something screwy, found item without card! ", item.id )
+		return card
+
+class SpeedRoundSchedulingPolicy( CardSchedulingPolicy ):
+	def __init__( self ):
+		CardSchedulingPolicy.__init__( self )
+
+	def getCard( self, deck ):
+		"Return the next card, due or not"
+
+		item = None
+
+		while deck.futureQueue:
+		    newItem = heappop(deck.futureQueue)
+		    deck.addExpiredItem(newItem)
+
+		# failed card due?
+		if deck.failedQueue:
+		    item = heappop(deck.failedQueue)
+		# card due for revision
+		elif deck.revQueue:
+		    item = heappop(deck.revQueue)
+		# card due for acquisition
+		elif deck.acqQueue:
+		    item = heappop(deck.acqQueue)
+
+		if not item:
+			return
+
+		card = deck.s.query(anki.cards.Card).get(item.id)
+		if card:
+			card.genFuzz()
+			card.startTimer()
 		return card
 
 class ExtendAnkiScheduling(object):
-	def __init__( self ):
+	# types of new card scheduling policy
+	NC_POLICY_ORIGINAL = 0
+	NC_POLICY_DISTRIBUTE = 1
+	NC_POLICY_SPEEDROUND = 2
+
+	PREFS_NEW_CARD_POLICY = 'rlc.bitzer.cards.new.policy'
+	DEFAULT_NEW_CARD_POLICY = NC_POLICY_ORIGINAL
+	PREFS_NEW_CARD_DISTRIBUTION  = 'rlc.bitzer.cards.new.distribution'
+	DEFAULT_NEW_CARD_DISTRIBUTION  = 0
+
+	def __init__( self, extPrefs, config ):
 		self.oldDeckGetCard = Deck.getCard
 		Deck.getCard = lambda deck : self.interceptDeckGetCard( deck )
 		self.defaultPolicy = AnkiDefaultSchedulingPolicy( self.oldDeckGetCard )
-		self.schedulingPolicy = self.defaultPolicy
+		self.setSchedulingPolicyFromConfig( config )
+		extPrefs.hookSetup( self.addToPrefsTab )
+		extPrefs.hookAccept( self.acceptPrefs )
+
+	def addToPrefsTab( self, extPrefs ):
+		extPrefs.prefsTabAddLabel( _( """<h1>Card Scheduling</h1>
+				Select between different card scheduling policies.
+				<ul>
+				<li>Anki default policy</li>
+				<li>New card distribution policy</li>
+				<li>Ignore timing policy</li>
+				</ul>""" ) )
+	        combo = extPrefs.prefsTabAddComboBox( _("Choose Policy"),
+			self.PREFS_NEW_CARD_POLICY,
+			self.DEFAULT_NEW_CARD_POLICY,
+			[ 'Anki Default', 'New cards mixed in', 'Ignore card timing' ] )
+		extPrefs.prefs.connect(combo, QtCore.SIGNAL("currentIndexChanged(int)"), lambda i: self.policySelected(i))
+		
+		self.slider = extPrefs.prefsTabAddSlider( _("Frequency of new cards during review"),
+			self.PREFS_NEW_CARD_DISTRIBUTION,
+			self.DEFAULT_NEW_CARD_DISTRIBUTION,
+			0, 4, 1, 
+			[ _("Old first"), _("1 in 4 new"), _("1 in 2 new"), _("3 in 4 new"), _("New first") ] )
+
+		self.policySelected( getConfig( extPrefs.prefs.config, self.PREFS_NEW_CARD_POLICY, self.DEFAULT_NEW_CARD_POLICY ) )
+
+	def policySelected( self, index ):
+		if index == self.NC_POLICY_DISTRIBUTE:
+			self.slider.show()
+		else:
+			self.slider.hide()
+		
+
+	def acceptPrefs( self, extPrefs ):
+		extPrefs.prefsCommitComboBox( self.PREFS_NEW_CARD_POLICY )
+		extPrefs.prefsCommitSlider( self.PREFS_NEW_CARD_DISTRIBUTION )
+		self.setSchedulingPolicyFromConfig( extPrefs.prefs.config )
 
 	def setSchedulingPolicy( self, schedulingPolicy ):
 		self.schedulingPolicy = schedulingPolicy
@@ -369,12 +602,38 @@ class ExtendAnkiScheduling(object):
 		RlcDebug.debug( "deck get card" )
 		return self.schedulingPolicy.getCard( deck )
 
+	def setSchedulingPolicyFromConfig( self, config ):
+		policy = getConfig( config, self.PREFS_NEW_CARD_POLICY, self.DEFAULT_NEW_CARD_POLICY )
+		if policy == self.NC_POLICY_DISTRIBUTE:
+			self.schedulingPolicy = DistributeNewCardsSchedulingPolicy(
+				getConfig( config, self.PREFS_NEW_CARD_DISTRIBUTION,
+						self.DEFAULT_NEW_CARD_DISTRIBUTION) * 25 )
+		elif policy == self.NC_POLICY_SPEEDROUND:
+			self.schedulingPolicy = SpeedRoundSchedulingPolicy()
+		else:
+			self.schedulingPolicy = self.defaultPolicy
+
+		self.setSchedulingPolicy( self.schedulingPolicy )
 
 class ExtendAnkiHelp(object):
-	def __init__( self, mw ):
+	PREFS_ENABLE_SCRIBBLE = 'rlc.bitzer.help.scribble'
+	DEFAULT_ENABLE_SCRIBBLE = False
+
+	def __init__( self, extPrefs, mw ):
 		self.mw = mw
 		self.scribbleActive = False
 		self.scribble = None
+		extPrefs.hookSetup( self.addToPrefsTab )
+		extPrefs.hookAccept( self.acceptPrefs )
+
+	def addToPrefsTab( self, extPrefs ):
+		extPrefs.prefsTabAddCheckBox( _("Enable scribble pad"),
+			self.PREFS_ENABLE_SCRIBBLE,
+			self.DEFAULT_ENABLE_SCRIBBLE )
+
+	def acceptPrefs( self, extPrefs ):
+		extPrefs.prefsCommitCheckBox( self.PREFS_ENABLE_SCRIBBLE )
+		self.setScribble( extPrefs.prefsGetConfig( self.PREFS_ENABLE_SCRIBBLE ) )
 
 	def createScribble( self ):
 		mwui = self.mw.mainWin
@@ -490,177 +749,169 @@ class Painting(QWidget):
 
 ###############################################
 
-class RlcBitzer( ExtendAnkiPrefs, ExtendAnkiMain, ExtendAnkiEdit, ExtendAnkiScheduling ):
+class AnkiPersonalTrainer(object):
+	"""
+	Motivate the user to the point of exhaustion :)
+	"""
 
-	# set to 1 to allow update checks to be completely disabled by user
-	permitUpdateDisable = 0
+	PREFS_TRAINER_ENABLE = 'rlc.bitzer.trainer.enable'
+	DEFAULT_TRAINER_ENABLE = False
+	PREFS_TRAINER_CARD_LIMIT = 'rlc.bitzer.trainer.limit.card'
+	DEFAULT_TRAINER_CARD_LIMIT = True
+	PREFS_TRAINER_CARD_LIMIT_VALUE = 'rlc.bitzer.trainer.limit.card.value'
+	DEFAULT_TRAINER_CARD_LIMIT_VALUE = 100
+	PREFS_TRAINER_TIME_LIMIT = 'rlc.bitzer.trainer.limit.time'
+	DEFAULT_TRAINER_TIME_LIMIT = False
+	PREFS_TRAINER_TIME_LIMIT_VALUE = 'rlc.bitzer.trainer.limit.time.value'
+	DEFAULT_TRAINER_TIME_LIMIT_VALUE = 60	# minutes
 
-	# types of new card scheduling policy
-	NC_POLICY_DEFAULT = 0
-	NC_POLICY_DISTRIBUTE = 1
+	def __init__( self, extPrefs, mw ):
+		self.mw = mw
+		self.enable = 0
+		self.firstTime = True
+		self.cardsThisSession = 0
+		self.sessionStart = time.time()
+		self.setLimitsFromConfig( mw.config )
+		extPrefs.hookSetup( self.addToPrefsTab )
+		extPrefs.hookAccept( self.acceptPrefs )
+		self.origMoveToState = AnkiQt.moveToState
+		AnkiQt.moveToState = lambda main, state: self.interceptMoveToState( main, state )
 
-	# prefs, and their default values
-	PREFS_FOCUS_ON_ANSWER = 'rlc.bitzer.answer.focusOnButton'
-	DEFAULT_FOCUS_ON_ANSWER = True
-	PREFS_CHECK_FOR_UPDATE = 'rlc.bitzer.update.check'
-	DEFAULT_CHECK_FOR_UPDATE = True
-	PREFS_QUIETEN_UPDATE = 'rlc.bitzer.update.quieten'
-	DEFAULT_QUIETEN_UPDATE = False
-	PREFS_EDIT_CURRENT = 'rlc.bitzer.edit.startupOnlyCurrent'
-	DEFAULT_EDIT_CURRENT = True
-	PREFS_NEW_CARD_POLICY = 'rlc.bitzer.cards.new.policy'
-	DEFAULT_NEW_CARD_POLICY = NC_POLICY_DEFAULT
-	PREFS_NEW_CARD_DISTRIBUTION  = 'rlc.bitzer.cards.new.distribution'
-	DEFAULT_NEW_CARD_DISTRIBUTION  = False
-	PREFS_ENABLE_SCRIBBLE = 'rlc.bitzer.help.scribble'
-	DEFAULT_ENABLE_SCRIBBLE = False
+	def addToPrefsTab( self, extPrefs ):
+		extPrefs.prefsTabAddLabel( _("<h1>Personal Trainer</h1>") )
+		self.ptCheck = extPrefs.prefsTabAddCheckBox( _("Enable personal trainer"),
+			self.PREFS_TRAINER_ENABLE,
+			self.DEFAULT_TRAINER_ENABLE )
+		row =  extPrefs.layout.rowCount()
+		extPrefs.prefs.connect(self.ptCheck, QtCore.SIGNAL("stateChanged(int)"), lambda i: self.ptCheckChanged(i))
+		self.ptCardCheck = extPrefs.prefsTabAddCheckBox( _("Card limit"),
+			self.PREFS_TRAINER_CARD_LIMIT,
+			self.DEFAULT_TRAINER_CARD_LIMIT,
+			row, 0, 1, 1 )
+		extPrefs.prefs.connect(self.ptCardCheck, QtCore.SIGNAL("stateChanged(int)"), lambda i: self.ptCardCheckChanged(i))
+		self.ptCardValue = extPrefs.prefsTabAddIntegerBox( None,
+			self.PREFS_TRAINER_CARD_LIMIT_VALUE,
+			self.DEFAULT_TRAINER_CARD_LIMIT_VALUE,
+			1, 1000,
+			row, 1, 1, 1 )
+		self.ptTimeCheck = extPrefs.prefsTabAddCheckBox( _("Time limit"),
+			self.PREFS_TRAINER_TIME_LIMIT,
+			self.DEFAULT_TRAINER_TIME_LIMIT,
+			row, 2, 1, 1 )
+		extPrefs.prefs.connect(self.ptTimeCheck, QtCore.SIGNAL("stateChanged(int)"), lambda i: self.ptTimeCheckChanged(i))
+		self.ptTimeValue = extPrefs.prefsTabAddIntegerBox( None,
+			self.PREFS_TRAINER_TIME_LIMIT_VALUE,
+			self.DEFAULT_TRAINER_TIME_LIMIT_VALUE,
+			10, 600,
+			row, 3, 1, 1 )
+
+		self.ptCheckChanged( self.ptCheck.isChecked() )
+
+	def acceptPrefs( self, extPrefs ):
+		extPrefs.prefsCommitCheckBox( self.PREFS_TRAINER_ENABLE )
+		extPrefs.prefsCommitCheckBox( self.PREFS_TRAINER_CARD_LIMIT )
+		extPrefs.prefsCommitIntegerBox( self.PREFS_TRAINER_CARD_LIMIT_VALUE )
+		extPrefs.prefsCommitCheckBox( self.PREFS_TRAINER_TIME_LIMIT )
+		extPrefs.prefsCommitIntegerBox( self.PREFS_TRAINER_TIME_LIMIT_VALUE )
+		self.setLimitsFromConfig( extPrefs.prefs.config )
+
+	def setLimitsFromConfig( self, config ):
+		self.enable = getConfig( config, self.PREFS_TRAINER_ENABLE, self.DEFAULT_TRAINER_ENABLE )
+		self.card_limit = getConfig( config, self.PREFS_TRAINER_CARD_LIMIT, self.DEFAULT_TRAINER_CARD_LIMIT )
+		self.card_limit_value = getConfigInt( config, self.PREFS_TRAINER_CARD_LIMIT_VALUE, self.DEFAULT_TRAINER_CARD_LIMIT_VALUE )
+		self.time_limit = getConfig( config, self.PREFS_TRAINER_TIME_LIMIT, self.DEFAULT_TRAINER_TIME_LIMIT )
+		self.time_limit_value = getConfigInt( config, self.PREFS_TRAINER_TIME_LIMIT_VALUE, self.DEFAULT_TRAINER_TIME_LIMIT_VALUE )
 
 
+	def ptCheckChanged( self, state ):
+		self.ptCardCheck.setEnabled(state)
+		self.ptTimeCheck.setEnabled(state)
+		if state:
+			self.ptCardCheckChanged( self.ptCardCheck.isChecked() )
+			self.ptTimeCheckChanged( self.ptTimeCheck.isChecked() )
+		else:	
+			self.ptCardCheckChanged( False )
+			self.ptTimeCheckChanged( False )
+
+	def ptCardCheckChanged( self, state ):
+		self.cardsThisSession = 0
+		self.ptCardValue.setEnabled(state)
+
+	def ptTimeCheckChanged( self, state ):
+		self.sessionStartTime = time.time()
+		self.ptTimeValue.setEnabled(state)
+
+	def sessionTimeExpired( self ):
+		if self.time_limit:
+			now = time.time()
+			if now - self.sessionStart > self.time_limit_value:
+				return True
+			else:
+				return False
+		else:
+			return False
+		
+	def sessionCardLimitReached( self ):
+		if self.card_limit:
+			if self.cardsThisSession > self.card_limit_value:
+				return True
+			else:
+				return False
+		else:
+			return False
+
+	def interceptMoveToState( self, mw, state ):
+		if getConfig(mw.config, self.PREFS_TRAINER_ENABLE, self.DEFAULT_TRAINER_ENABLE):
+			if state == "showQuestion" and self.firstTime:
+				self.firstTime = False
+			elif state == "showQuestion":
+				self.cardsThisSession = self.cardsThisSession + 1
+
+				# check if session is over
+				if self.sessionTimeExpired():
+					ans = QtGui.QMessageBox.information( mw, "Anki - Personal Trainer",
+						 _( """Time's up.  Good session!!<br>
+						But I think you can do more.""" ),
+						"5 mins more", "1 mins more", "Enough", 0, 2 )
+					if ans == 0:
+						self.sessionStart = self.sessionStart + 300
+					elif ans == 1:
+						self.sessionStart = self.sessionStart + 60
+					else:
+						state = "deckFinished"
+
+				elif self.sessionCardLimitReached():
+					ans = QtGui.QMessageBox.information( mw, "Anki - Personal Trainer",
+						_( """Card limit up!  Good session!!<br>
+						But I think you can do more.""" ),
+						"5 more", "1 more", "Enough", 0, 2 )
+					if ans == 0:
+						self.cardsThisSession = self.card_limit_value - (5-1)
+					elif ans == 1:
+						self.cardsThisSession = self.card_limit_value - (1-1)
+					else:
+						state = "deckFinished"
+
+		self.origMoveToState( mw, state )
+
+###############################################
+
+class RlcBitzer( object ):
 
 	def __init__( self, ankiMain ):
 		# do early init
-		ExtendAnkiPrefs.__init__( self )
-		ExtendAnkiMain.__init__( self )
-		ExtendAnkiEdit.__init__( self )
-		ExtendAnkiScheduling.__init__( self )
-
 		self.mw = ankiMain
 
-
-	def getConfig( self, item, default=None ):
-		if self.mw.config.has_key( item ):
-			return self.mw.config[item]
-		else:
-			return default
-
-	def setConfig( self, item, value ):
-		self.mw.config[item] = value
+		self.extPrefs = ExtendAnkiPrefs( _("RLC Bitzer Settings") )
+		self.extMain = ExtendAnkiMain( self.extPrefs )
+		self.extHelp = ExtendAnkiHelp( self.extPrefs, self.mw )
+		self.extEdit = ExtendAnkiEdit( self.extPrefs )
+		self.extScheduler = ExtendAnkiScheduling( self.extPrefs, self.mw.config )
+		self.personalTrainer = AnkiPersonalTrainer( self.extPrefs, self.mw )
 
 	def pluginInit( self ):
-		self.extHelp = ExtendAnkiHelp( self.mw )
-		self.extHelp.setScribble( self.getConfig( self.PREFS_ENABLE_SCRIBBLE, self.DEFAULT_ENABLE_SCRIBBLE ) )
-		self.setSchedulingPolicyFromConfig( self.getConfig )
+		self.extHelp.setScribble( getConfig( mw.config, self.extHelp.PREFS_ENABLE_SCRIBBLE, self.extHelp.DEFAULT_ENABLE_SCRIBBLE ) )
 
-		
-	def setSchedulingPolicyFromConfig( self, thisGetConfig ):
-		policy = thisGetConfig( self.PREFS_NEW_CARD_POLICY, self.DEFAULT_NEW_CARD_POLICY )
-		if policy == self.NC_POLICY_DISTRIBUTE:
-			self.schedulingPolicy = DistributeNewCardsSchedulingPolicy(
-				thisGetConfig(self.PREFS_NEW_CARD_DISTRIBUTION,
-						self.DEFAULT_NEW_CARD_DISTRIBUTION) * 25 )
-		else:
-			self.schedulingPolicy = self.defaultPolicy
-
-		self.setSchedulingPolicy( self.schedulingPolicy )
-
-	########################################
-	# Over-ride methods in ExtendAnkiPrefs
-	########################################
-
-	def prefsSetup( self, prefs ):
-		layout = self.prefsAddTab( prefs, _("RLC Bitzer Settings") )
-		self.prefsTabAddLabel( layout, _("<h1>Main Window Settings</h1>"), layout.rowCount() )
-		self.prefsTabAddCheckBox( layout,
-			_("Focus on answer"),
-			self.PREFS_FOCUS_ON_ANSWER,
-			self.DEFAULT_FOCUS_ON_ANSWER, layout.rowCount() )
-		if self.permitUpdateDisable:
-			self.prefsTabAddCheckBox( layout,
-				_("Check for Anki updates"),
-				self.PREFS_CHECK_FOR_UPDATE,
-				self.DEFAULT_CHECK_FOR_UPDATE, layout.rowCount() )
-		self.prefsTabAddCheckBox( layout,
-			_("Suppress update dialog"),
-			self.PREFS_QUIETEN_UPDATE,
-			self.DEFAULT_QUIETEN_UPDATE, layout.rowCount() )
-		self.prefsTabAddCheckBox( layout,
-			_("Enable scribble pad"),
-			self.PREFS_ENABLE_SCRIBBLE,
-			self.DEFAULT_ENABLE_SCRIBBLE, layout.rowCount() )
-		self.prefsTabAddLabel( layout, _("<h1>Edit Cards Window</h1>"), layout.rowCount() )
-		self.prefsTabAddCheckBox( layout,
-			 _("Start Edit Deck with only the current card displayed"),
-			self.PREFS_EDIT_CURRENT,
-			self.DEFAULT_EDIT_CURRENT, layout.rowCount() )
-		self.prefsTabAddLabel( layout, _( """<h1>Card Scheduling</h1>
-				Select between Anki's original New card scheduling algorithm and one<br>
-				which shows you a configurable number of New cards in between Old ones.""" ),
-			layout.rowCount() )
-	        combo = self.prefsTabAddComboBox( layout,
-			_("Choose Policy"),
-			self.PREFS_NEW_CARD_POLICY,
-			self.DEFAULT_NEW_CARD_POLICY,
-			[ 'Anki Default', 'New cards mixed in'], layout.rowCount() )
-		prefs.connect(combo, QtCore.SIGNAL("currentIndexChanged(int)"), lambda i: self.newCardDistribution(i))
-		
-		self.slider = self.prefsTabAddSlider( layout,
-			_("Frequency of new cards during review"),
-			self.PREFS_NEW_CARD_DISTRIBUTION,
-			self.DEFAULT_NEW_CARD_DISTRIBUTION,
-			0, 4, 1, 
-			[ _("Old first"), _("1 in 4 new"), _("1 in 2 new"), _("3 in 4 new"), _("New first") ],
-			layout.rowCount() )
-
-		if not self.getConfig( self.PREFS_NEW_CARD_POLICY, self.DEFAULT_NEW_CARD_POLICY ) == self.NC_POLICY_DISTRIBUTE:
-			self.slider.hide()
-
-	def newCardDistribution( self, index ):
-		if index == self.NC_POLICY_DEFAULT:
-			self.slider.hide()
-		elif index == self.NC_POLICY_DISTRIBUTE:
-			self.slider.show()
-
-	def prefsAccept( self, prefs ):
-		RlcDebug.debug( "prefsAccept: called" )
-		self.prefsCommitCheckBox( self.PREFS_FOCUS_ON_ANSWER )
-		if self.permitUpdateDisable:
-			self.prefsCommitCheckBox( self.PREFS_CHECK_FOR_UPDATE )
-		self.prefsCommitCheckBox( self.PREFS_QUIETEN_UPDATE )
-		self.prefsCommitCheckBox( self.PREFS_EDIT_CURRENT )
-		self.prefsCommitComboBox( self.PREFS_NEW_CARD_POLICY )
-		self.prefsCommitSlider( self.PREFS_NEW_CARD_DISTRIBUTION )
-		self.setSchedulingPolicyFromConfig( self.prefsGetConfig )
-		self.prefsCommitCheckBox( self.PREFS_ENABLE_SCRIBBLE )
-		self.extHelp.setScribble( self.prefsGetConfig( self.PREFS_ENABLE_SCRIBBLE ) )
-
-
-	########################################
-	# Over-ride methods in ExtendAnkiMain
-	########################################
-
-	def interceptShowEaseButtons( self, mw ):
-		# call original method
-		ExtendAnkiMain.interceptShowEaseButtons( self, mw )
-		if not self.getConfig(self.PREFS_FOCUS_ON_ANSWER, self.DEFAULT_FOCUS_ON_ANSWER):
-			# now remove focus from answer button
-			mw.setFocus()
-
-	def interceptSetupAutoUpdate( self, mw ):
-		if self.getConfig(self.PREFS_CHECK_FOR_UPDATE, self.DEFAULT_CHECK_FOR_UPDATE):
-			RlcDebug.debug( "Checking for update!" )
-			ExtendAnkiMain.interceptSetupAutoUpdate( self, mw )
-
-	def interceptNewVerAvail( self, mw, version ):
-		if self.getConfig(self.PREFS_QUIETEN_UPDATE, self.DEFAULT_QUIETEN_UPDATE):
-			mw.statusView.statusbar.showMessage( _("Anki Update Available: ") + version, 5000 )
-		else:
-			ExtendAnkiMain.interceptNewVerAvail( self, mw, version )
-
-	########################################
-	# Over-ride methods in ExtendAnkiEdit
-	########################################
-
-	def interceptSelectLastCard( self, edit ):
-		if self.getConfig(self.PREFS_EDIT_CURRENT, self.DEFAULT_EDIT_CURRENT):
-			ExtendAnkiEdit.interceptSelectLastCard( self, edit )
-		else:
-			edit.updateSearch()
-			if edit.parent.currentCard:
-				currentCardIndex = self.findCardInDeckModel( edit.model, edit.parent.currentCard )
-				if currentCardIndex >= 0:
-					edit.dialog.tableView.selectRow( currentCardIndex )
-					edit.dialog.tableView.scrollTo( edit.model.index(currentCardIndex,0), edit.dialog.tableView.PositionAtTop )
-					
 
 ###################################
 
@@ -680,3 +931,16 @@ def hookPluginInit():
 r = RlcBitzer( mw )
 # Hook Stage 2
 mw.addHook( "init", hookPluginInit )
+
+# popup dialog
+#msg = QtGui.QDialog()
+#msg.setModal( True )
+#layout = QtGui.QGridLayout()
+#msg.setLayout( layout )
+#layout.addWidget( QtGui.QLabel( _("Hi") ), 0, 0, 1, -1 )
+#layout.addWidget( QtGui.Button())
+#msg = QtGui.QMessageBox()
+#msg.setText( "hi" )
+#msg.addButton( "No", "99" )
+#msg.show()
+
