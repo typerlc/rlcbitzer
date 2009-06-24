@@ -10,10 +10,12 @@
 # License:     GPL v3
 # ---------------------------------------------------------------------------
 
-plugin_version = "v0.24"
+plugin_version = "v0.25"
 
 # Changelog:
 # 
+# ---- 0.25 -- 2008-09-08 -- Richard Colley ----
+#   Typo fixed
 # ---- 0.24 -- 2008-09-07 -- Richard Colley ----
 #   Disable new card distribution scheduler if anki 0.9.7.8
 # ---- 0.23 -- 2008-09-07 -- Richard Colley ----
@@ -684,7 +686,7 @@ class ExtendAnkiScheduling(object):
 				<ul>
 				  <li>Anki default policy</li>"""
 	if not AnkiFunctionality.isNewCardSpreadImplemented():
-		TIP_NEW_CARD_POLCIY += """
+		TIP_NEW_CARD_POLICY += """
 				  <li>New card distribution policy - this lets you mix in
 				  new cards while answering old ones.  You will be able to
 				  choose how frequently new cards will be shown.</li>
