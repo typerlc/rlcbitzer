@@ -10,10 +10,13 @@
 # License:     GPL v3
 # ---------------------------------------------------------------------------
 
-plugin_version = "v0.18"
+plugin_version = "v0.19"
 
 # Changelog:
 # 
+# ---- 0.19 -- 2008-05-27 -- Richard Colley ----
+#   Properly fixed Windows minimize to tray
+#   Fixed kanji tip string expansion.
 # ---- 0.18 -- 2008-05-26 -- Richard Colley ----
 #   Fixed mouse-over character selection
 #   Env var 'bitzer_debug' turns on debug output
@@ -1113,9 +1116,9 @@ class AnkiTrayIcon( QtCore.QObject ):
 				self.ti.hide()
 
 	def showMain( self ):
-		winState = ( self.mw.windowState() & ~Qt.WindowMinimized ) | Qt.WindowActive;
-		self.mw.setWindowState( winState )
-		self.mw.show()
+		self.mw.showNormal()
+		self.mw.activateWindow()
+		self.mw.raise_()
 		self.anki_visible = True
 
 	def hideMain( self ):
@@ -1162,7 +1165,10 @@ class AnkiTrayIcon( QtCore.QObject ):
 		if self.getEnabled( self.mw.config ) and self.parent() == obj:
 			if event.type() == QtCore.QEvent.WindowStateChange:
 				if self.ti and obj.windowState() & Qt.WindowMinimized:
-					self.hideMain()
+					# for Windows, need to delay the hideMain() call otherwise
+					# Windows gets its knickers in a knot.
+					QtCore.QTimer.singleShot( 100, self.hideMain  );
+					return True
 			elif event.type() == QtCore.QEvent.Close:
 				if self.ti:
 					self.ti.hide()
@@ -1193,6 +1199,9 @@ class ExtendToolTips(QtCore.QObject):
 			  <li>%(char)s - the character itself</li>
 			  <li>%(utf8-hex)s - hex digits for the character in UTF-8. e.g. e5ad90</li>
 			  <li>%(utf8-url)s - hex digits for the character in UTF-8, but suitable for adding to a URL. e.g. %e5%ad%90</li>
+			  <li>%(word)s - the word under the cursor</li>
+			  <li>%(word-hex)s - hex digits for the word in UTF-8. e.g. e5ad90</li>
+			  <li>%(word-url)s - hex digits for the word in UTF-8, but suitable for adding to a URL. e.g. %e5%ad%90</li>
 			</ul>
 			"""
 	PREFS_TIPS_MOVIE_VALUE = 'rlc.bitzer.tips.movie'
@@ -1202,7 +1211,7 @@ class ExtendToolTips(QtCore.QObject):
 		<p>e.g. /home/user/soda-utf8/%(char)s.gif
 			"""
 	PREFS_TIPS_HTML_VALUE = 'rlc.bitzer.tips.html'
-	DEFAULT_TIPS_HTML_VALUE = 'soda-utf8/%(char)s.html'
+	DEFAULT_TIPS_HTML_VALUE = 'http://www.csse.monash.edu.au/~jwb/cgi-bin/wwwjdic.cgi?1MMJ%(word-url)s_3'
 	TIP_TIPS_HTML_VALUE = """<p>Info on the character will be loaded from this URL
 		Remember that special tags will be replaced in the URL.
 		<p>e.g. http://www.csse.monash.edu.au/~jwb/cgi-bin/wwwjdic.cgi?1MMJ%(utf8-url)s_3
@@ -1227,6 +1236,7 @@ class ExtendToolTips(QtCore.QObject):
 		self.w.setVisible(self.getEnabled(mw.config))
 
 		self.lastSelected = None
+		self.movie = None
 
 		extPrefs.hookSetup( self.addToPrefsTab )
 		extPrefs.hookAccept( self.acceptPrefs )
@@ -1279,14 +1289,17 @@ class ExtendToolTips(QtCore.QObject):
 	def getHtmlValue( self, config ):
 		return getConfig(config, self.PREFS_TIPS_HTML_VALUE, self.DEFAULT_TIPS_HTML_VALUE)
 
-	def expandString( self, specStr, tc ):
-		self.lastSelected = tc.selectedText()
-		selText = { 'char': unicode(tc.selectedText()),
-		  'utf8-hex': repr(unicode(tc.selectedText()).encode('utf8')).replace('\\x','').strip("u'"),
-		  'utf8-url': repr(unicode(tc.selectedText()).encode('utf8')).replace('\\x','%').strip("u'"),
+	def expandString( self, specStr, char, word ):
+		self.lastSelected = char
+		# map from tag->(value,description)
+		selText = {
+		  'char': unicode(char),
+		  'utf8-hex': repr(unicode(char).encode('utf8')).replace('\\x','').strip("u'"),
+		  'utf8-url': repr(unicode(char).encode('utf8')).replace('\\x','%').strip("u'"),
+		  'word': unicode(word),
+		  'word-hex': repr(unicode(word).encode('utf8')).replace('\\x','').strip("u'"),
+		  'word-url': repr(unicode(word).encode('utf8')).replace('\\x','%').strip("u'"),
 		}
-		tc.select( tc.WordUnderCursor )
-		selText['word'] = unicode(tc.selectedText())
 		return unicode(specStr) % selText
 
 	def hookQtEvents( self, parent ):
@@ -1302,11 +1315,15 @@ class ExtendToolTips(QtCore.QObject):
 			# adjust if mouse is on right-half of char
 			if pos.x() < qr.topLeft().x():
 				tc.movePosition( tc.Left, tc.MoveAnchor )
-			tc.movePosition( tc.NextCharacter, tc.KeepAnchor )
+			tc.clearSelection()
+			tc.movePosition( tc.Right, tc.KeepAnchor )
 			if tc.hasSelection() and tc.selectedText() != self.lastSelected:
+				char = tc.selectedText()
+				tc.select( tc.WordUnderCursor )
+				word = tc.selectedText()
 				try:
 					movieSpecString = self.getMovieValue(self.mw.config)
-					movieName = self.expandString( movieSpecString, tc )
+					movieName = self.expandString( movieSpecString, char, word )
 					RlcDebug.debug( "Loading movie: ", movieName )
 					self.movie = QtGui.QMovie( movieName )
 					self.movieLabel.setMovie( self.movie )
@@ -1316,7 +1333,7 @@ class ExtendToolTips(QtCore.QObject):
 
 				try:
 					htmlSpecString = self.getHtmlValue(self.mw.config)
-					htmlName = self.expandString( htmlSpecString, tc )
+					htmlName = self.expandString( htmlSpecString, char, word )
 					RlcDebug.debug( "Loading URL: ", htmlName )
 					import urllib
 					html = urllib.urlopen( htmlName )
