@@ -10,8 +10,13 @@
 # Version:     0.09 (2008-03-31)
 # License:     GPL
 # ---------------------------------------------------------------------------
+
+plugin_version = "v0.14"
+
 # Changelog:
 # 
+# ---- 0.14 -- 2008-04-24 -- Richard Colley ----
+#   Added tray icon, and plugin version string to prefs
 # ---- 0.13 -- 2008-04-19 -- Richard Colley ----
 #   Finished first pass of personal trainer.
 # ---- 0.12 -- 2008-04-19 -- Richard Colley ----
@@ -158,7 +163,7 @@ class ExtendAnkiPrefs(Hooks):
 
 	def interceptSetupAdvanced( self, prefs ):
 		self.prefs = prefs
-                self.prefsAddTab( self.name )
+                self.prefsAddTab( self.name + " (" + plugin_version + ")" )
 		self.origSetupAdvanced( prefs )
 		self.runHook( 'setup', self )
 	def interceptPrefsAccept( self, prefs ):
@@ -896,6 +901,96 @@ class AnkiPersonalTrainer(object):
 
 ###############################################
 
+class AnkiTrayIcon( object ):
+	"""
+	Enable minimize to tray
+	"""
+
+	PREFS_TRAY_ENABLE = 'rlc.bitzer.tray.enable'
+	DEFAULT_TRAY_ENABLE = False
+	def __init__( self, extPrefs, mw ):
+		self.mw = mw
+		self.anki_visible = True
+		if QtGui.QSystemTrayIcon.isSystemTrayAvailable():
+			self.ti = QtGui.QSystemTrayIcon( mw )
+			if self.ti:
+				self.ti.setIcon( QtGui.QIcon(":/icons/anki.png") )
+				self.ti.setToolTip( "Anki" )
+
+				# hook signls, and Anki state changes
+				mw.addView( self )
+				mw.connect(self.ti, QtCore.SIGNAL("activated(QSystemTrayIcon::ActivationReason)"), lambda i: self.activated(i))
+				mw.connect(self.ti, QtCore.SIGNAL("messageClicked()"), lambda : self.messageClicked())
+
+				self.setFromConfig( self.mw.config )
+				extPrefs.hookSetup( self.addToPrefsTab )
+				extPrefs.hookAccept( self.acceptPrefs )
+
+	def addToPrefsTab( self, extPrefs ):
+		self.ptCheck = extPrefs.prefsTabAddCheckBox( _("Enable tray icon"),
+			self.PREFS_TRAY_ENABLE,
+			self.DEFAULT_TRAY_ENABLE )
+		self.ptCheckChanged( self.ptCheck.isChecked() )
+
+	def acceptPrefs( self, extPrefs ):
+		extPrefs.prefsCommitCheckBox( self.PREFS_TRAY_ENABLE )
+		self.setFromConfig( extPrefs.prefs.config )
+
+	def setFromConfig( self, config ):
+		enable = getConfig( config, self.PREFS_TRAY_ENABLE, self.DEFAULT_TRAY_ENABLE )
+		self.ptCheckChanged( enable )
+
+	def ptCheckChanged( self, state ):
+		if state:
+			if self.ti:
+				self.ti.show()
+		else:
+			if self.ti:
+				self.ti.hide()
+
+	def showMain( self ):
+		self.mw.show()
+		self.anki_visible = True
+
+	def hideMain( self ):
+		self.mw.hide()
+		self.anki_visible = False
+
+	def activated( self, reason ):
+		if self.anki_visible:
+			self.hideMain()
+		else:
+			self.showMain()
+
+	def messageClicked( self ):
+		if not self.anki_visible:
+			self.showMain()
+
+	def setToolTip( self, message ):
+		self.ti.setToolTip( message )
+
+	def showMessage( self, message ):
+		if self.ti.supportsMessages():
+			self.ti.showMessage( "Anki", message )
+
+	def setState( self, state ):
+		RlcDebug.debug( "AnkiTrayIcon::setState(): state=" + state )
+		if state == "showQuestion":
+			if not self.anki_visible:
+				self.showMessage( "A new card is available for review, click this message to display Anki" )
+			self.setToolTip( "Anki - displaying question" )
+		elif state == "showAnswer":
+			self.setToolTip( "Anki - displaying answer" )
+		elif state == "noDeck":
+			self.setToolTip( "Anki - no deck" )
+		elif state == "deckFinished":
+			if self.mw and self.mw.deck:
+				self.setToolTip( "Anki - next card in " + self.mw.deck.earliestTimeStr() )
+		else:
+			self.setToolTip( "Anki" )
+
+
+###############################################
 class RlcBitzer( object ):
 
 	def __init__( self, ankiMain ):
@@ -905,6 +1000,7 @@ class RlcBitzer( object ):
 		self.extPrefs = ExtendAnkiPrefs( _("RLC Bitzer Settings") )
 		self.extMain = ExtendAnkiMain( self.extPrefs )
 		self.extHelp = ExtendAnkiHelp( self.extPrefs, self.mw )
+		self.trayIcon = AnkiTrayIcon( self.extPrefs, self.mw )
 		self.extEdit = ExtendAnkiEdit( self.extPrefs )
 		self.extScheduler = ExtendAnkiScheduling( self.extPrefs, self.mw.config )
 		self.personalTrainer = AnkiPersonalTrainer( self.extPrefs, self.mw )
@@ -931,16 +1027,3 @@ def hookPluginInit():
 r = RlcBitzer( mw )
 # Hook Stage 2
 mw.addHook( "init", hookPluginInit )
-
-# popup dialog
-#msg = QtGui.QDialog()
-#msg.setModal( True )
-#layout = QtGui.QGridLayout()
-#msg.setLayout( layout )
-#layout.addWidget( QtGui.QLabel( _("Hi") ), 0, 0, 1, -1 )
-#layout.addWidget( QtGui.Button())
-#msg = QtGui.QMessageBox()
-#msg.setText( "hi" )
-#msg.addButton( "No", "99" )
-#msg.show()
-
