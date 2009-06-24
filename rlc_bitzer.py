@@ -10,10 +10,15 @@
 # License:     GPL v3
 # ---------------------------------------------------------------------------
 
-plugin_version = "v0.17"
+plugin_version = "v0.18"
 
 # Changelog:
 # 
+# ---- 0.18 -- 2008-05-26 -- Richard Colley ----
+#   Fixed mouse-over character selection
+#   Env var 'bitzer_debug' turns on debug output
+#   Fixed bug on Windows that tray icon wasn't immediately removed on close
+#   Possibly fixed bug on Windows where minimize to tray leaves item in taskbar.
 # ---- 0.17 -- 2008-05-01 -- Richard Colley ----
 #   Mouse-over character info.
 #   Preferences tool tips.
@@ -132,9 +137,10 @@ class Hooks(object):
 
 ############ Debug stuff
 
+import os
 import traceback
 class RlcDebug(object):
-	disabled = 1
+	disabled = not os.environ.has_key('bitzer_debug')
 	def debug( self, *args ):
 		if self.disabled:
 			return
@@ -1079,6 +1085,9 @@ class AnkiTrayIcon( QtCore.QObject ):
 				extPrefs.hookSetup( self.addToPrefsTab )
 				extPrefs.hookAccept( self.acceptPrefs )
 
+				# intercept events (to detect minimise event)
+				mw.installEventFilter( self )
+
 	def addToPrefsTab( self, extPrefs ):
 		self.ptCheck = extPrefs.prefsTabAddCheckBox( _("Enable tray icon"),
 			self.PREFS_TRAY_ENABLE,
@@ -1149,15 +1158,15 @@ class AnkiTrayIcon( QtCore.QObject ):
 	def getEnabled( self, config ):
 		return getConfig( config, self.PREFS_TRAY_ENABLE, self.DEFAULT_TRAY_ENABLE )
 
-	def hookQtEvents( self, parent ):
-		self.setParent(parent)
-		parent.installEventFilter( self )
-
 	def eventFilter( self, obj, event ):
-		if self.getEnabled( self.mw.config ) and self.parent() == obj and event.type() == QtCore.QEvent.WindowStateChange:
-			if obj.windowState() & Qt.WindowMinimized:
-				self.hideMain()
-				return True
+		if self.getEnabled( self.mw.config ) and self.parent() == obj:
+			if event.type() == QtCore.QEvent.WindowStateChange:
+				if self.ti and obj.windowState() & Qt.WindowMinimized:
+					self.hideMain()
+			elif event.type() == QtCore.QEvent.Close:
+				if self.ti:
+					self.ti.hide()
+
 		return QtCore.QObject.eventFilter(self, obj, event)
 
 
@@ -1217,6 +1226,8 @@ class ExtendToolTips(QtCore.QObject):
 
 		self.w.setVisible(self.getEnabled(mw.config))
 
+		self.lastSelected = None
+
 		extPrefs.hookSetup( self.addToPrefsTab )
 		extPrefs.hookAccept( self.acceptPrefs )
 
@@ -1268,6 +1279,16 @@ class ExtendToolTips(QtCore.QObject):
 	def getHtmlValue( self, config ):
 		return getConfig(config, self.PREFS_TIPS_HTML_VALUE, self.DEFAULT_TIPS_HTML_VALUE)
 
+	def expandString( self, specStr, tc ):
+		self.lastSelected = tc.selectedText()
+		selText = { 'char': unicode(tc.selectedText()),
+		  'utf8-hex': repr(unicode(tc.selectedText()).encode('utf8')).replace('\\x','').strip("u'"),
+		  'utf8-url': repr(unicode(tc.selectedText()).encode('utf8')).replace('\\x','%').strip("u'"),
+		}
+		tc.select( tc.WordUnderCursor )
+		selText['word'] = unicode(tc.selectedText())
+		return unicode(specStr) % selText
+
 	def hookQtEvents( self, parent ):
 		self.setParent(parent)
 		parent.installEventFilter( self )
@@ -1277,26 +1298,26 @@ class ExtendToolTips(QtCore.QObject):
 			gpos = event.globalPos()
 			pos = self.parent().mapFromGlobal( gpos )
 			tc = self.parent().cursorForPosition( pos )
+			qr = self.parent().cursorRect(tc)
+			# adjust if mouse is on right-half of char
+			if pos.x() < qr.topLeft().x():
+				tc.movePosition( tc.Left, tc.MoveAnchor )
 			tc.movePosition( tc.NextCharacter, tc.KeepAnchor )
-			if tc.hasSelection():
-				selText = { 'char': unicode(tc.selectedText()),
-				  'utf8-hex': repr(unicode(tc.selectedText()).encode('utf8')).replace('\\x','').strip("u'"),
-				  'utf8-url': repr(unicode(tc.selectedText()).encode('utf8')).replace('\\x','%').strip("u'"),
-				}
-				tc.select( tc.WordUnderCursor )
-				selText['word'] = unicode(tc.selectedText())
-
-				movieSpecString = unicode(self.getMovieValue(self.mw.config))
+			if tc.hasSelection() and tc.selectedText() != self.lastSelected:
 				try:
-					movieName = movieSpecString % selText
+					movieSpecString = self.getMovieValue(self.mw.config)
+					movieName = self.expandString( movieSpecString, tc )
+					RlcDebug.debug( "Loading movie: ", movieName )
 					self.movie = QtGui.QMovie( movieName )
 					self.movieLabel.setMovie( self.movie )
+					self.movie.start()
 				except Exception, e:
 					pass
 
-				htmlSpecString = unicode(self.getHtmlValue(self.mw.config))
 				try:
-					htmlName = htmlSpecString % selText
+					htmlSpecString = self.getHtmlValue(self.mw.config)
+					htmlName = self.expandString( htmlSpecString, tc )
+					RlcDebug.debug( "Loading URL: ", htmlName )
 					import urllib
 					html = urllib.urlopen( htmlName )
 					self.tip.setHtml( unicode(html.read(), 'utf8') )
@@ -1304,9 +1325,11 @@ class ExtendToolTips(QtCore.QObject):
 					self.tip.setText( """Can't load: %s
 Due to exception: %s
 """ % ( htmlName, e ) )
-					
 
-				self.movie.start()
+			elif not tc.hasSelection():
+				self.lastSelected = None
+				if self.movie:
+					self.movie.stop()
 			return True
 		return QtCore.QObject.eventFilter(self, obj, event)
 
@@ -1331,28 +1354,15 @@ class RlcBitzer( object ):
 		self.extScheduler = ExtendAnkiScheduling( self.extPrefs, self.mw.config )
 		self.personalTrainer = AnkiPersonalTrainer( self.extPrefs, self.mw )
 
-	def pluginInit( self ):
+	def pluginLateInit( self ):
 		self.extHelp.setScribble( getConfig( mw.config, self.extHelp.PREFS_ENABLE_SCRIBBLE, self.extHelp.DEFAULT_ENABLE_SCRIBBLE ) )
-		if not AnkiFunctionality.isTrayIconImplemented():
-			self.trayIcon.hookQtEvents( self.mw )
 		self.extToolTips.hookQtEvents( self.mw.mainWin.mainText )
 
 
 ###################################
 
-def abc():
-	print "hi", mw.mainWin.mainText.textCursor().selectedText()
-	
-
 def hookPluginInit():
-	r.pluginInit()
-	#mw.connect(mw.mainWin.mainText, QtCore.SIGNAL("customContextMenuRequested(const QPoint &)"), abc)
-	#mw.connect(mw.mainWin.mainText, QtCore.SIGNAL("clicked()"), lambda: abc() )
-	#mw.mousePressEvent = lambda obj, event: xyz( obj, event )
-	#mw.mainWin.mainText.mousePressEvent = lambda obj, event: xyz( obj, event )
-
-	# sort of works
-	#mw.connect(mw.mainWin.mainText, QtCore.SIGNAL("selectionChanged()"), lambda: abc() )
+	r.pluginLateInit()
 
 
 # Startup has been split into 2 stages ... early stuff that happens as soon as
