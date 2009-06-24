@@ -10,10 +10,13 @@
 # License:     GPL v3
 # ---------------------------------------------------------------------------
 
-plugin_version = "v0.25"
+plugin_version = "v0.26"
 
 # Changelog:
 # 
+# ---- 0.26 -- 2008-09-08 -- Richard Colley ----
+#   Activate external html tip loading
+#   Multiple html tip urls (depends on modifier pressed during mouse-over)
 # ---- 0.25 -- 2008-09-08 -- Richard Colley ----
 #   Typo fixed
 # ---- 0.24 -- 2008-09-07 -- Richard Colley ----
@@ -377,7 +380,7 @@ class ExtendAnkiPrefs(Hooks):
 		self.layout.addWidget(comp,row,col,rowSpan,colSpan)
 		return comp
 
-	def prefsTabAddComboBox( self, label, itemName, defaultValue, optionList, toolTip=None, row=None, col=0, rowSpan=1, colSpan=-1 ):
+	def prefsTabAddComboBox( self, label, itemName, defaultValue, optionList, toolTip=None, row=None, col=0, rowSpan=1, colSpan=-1, sizeAdjust=QtGui.QComboBox.AdjustToContentsOnFirstShow ):
 		combo = QtGui.QComboBox()
 		combo.addItems( optionList )
 		combo.setCurrentIndex( self.prefsGetConfig( itemName, defaultValue ) )
@@ -1095,9 +1098,14 @@ class ExtendToolTips(QtCore.QObject):
 		special tags will be replaced in the filename.
 		<p>e.g. /home/user/soda-utf8/%(char)s.gif
 			"""
-	PREFS_TIPS_HTML_VALUE = 'rlc.bitzer.tips.html'
-	DEFAULT_TIPS_HTML_VALUE = 'http://www.csse.monash.edu.au/~jwb/cgi-bin/wwwjdic.cgi?1MMJ%(word-url)s_3'
-	TIP_TIPS_HTML_VALUE = """<p>Info on the character will be loaded from this URL
+	VALUES_TIPS_ACTION = [ 'Internal', 'Browser' ]
+	PREFS_TIPS_ACTION = 'rlc.bitzer.tips.action'
+	DEFAULT_TIPS_ACTION = 0
+	TIP_TIPS_ACTION = """<p>What action to perform when tip activated"""
+
+	PREFS_TIPS_PARAMS = 'rlc.bitzer.tips.params'
+	DEFAULT_TIPS_PARAMS = 'http://www.csse.monash.edu.au/~jwb/cgi-bin/wwwjdic.cgi?1MMJ%(word-url)s_3'
+	TIP_TIPS_PARAMS = """<p>Info on the character will be loaded from this URL
 		Remember that special tags will be replaced in the URL.
 		<p>e.g. http://www.csse.monash.edu.au/~jwb/cgi-bin/wwwjdic.cgi?1MMJ%(utf8-url)s_3
 			"""
@@ -1121,6 +1129,7 @@ class ExtendToolTips(QtCore.QObject):
 		self.w.setVisible(self.getEnabled(mw.config))
 
 		self.lastMovie = None
+		self.lastAction = None
 		self.lastHtml = None
 		self.movie = None
 		self.tipLoading = False
@@ -1144,30 +1153,117 @@ class ExtendToolTips(QtCore.QObject):
 			self.DEFAULT_TIPS_MOVIE_VALUE,
 			self.TIP_TIPS_MOVIE_VALUE,
 			row, 1 )
+		self.ptTipAction = {}
+		self.ptTipParams = {}
 		row =  extPrefs.layout.rowCount()
-		extPrefs.prefsTabAddLabel( _("Info URL:"), None, row, 0, 1, 1 )
-		self.ptHtmlValue = extPrefs.prefsTabAddStringBox( None,
-			self.PREFS_TIPS_HTML_VALUE,
-			self.DEFAULT_TIPS_HTML_VALUE,
-			self.TIP_TIPS_HTML_VALUE,
-			row, 1 )
+		extPrefs.prefsTabAddLabel( _("Unmodified:"), None, row, 0, 1, 1 )
+	        self.ptTipAction[''] = extPrefs.prefsTabAddComboBox( None,
+			self.PREFS_TIPS_ACTION,
+			self.DEFAULT_TIPS_ACTION,
+			self.VALUES_TIPS_ACTION,
+			self.TIP_TIPS_ACTION,
+			row, 1, 1, 1, QtGui.QComboBox.AdjustToMinimumContentsLength )
+		self.ptTipParams[''] = extPrefs.prefsTabAddStringBox( None,
+			self.PREFS_TIPS_PARAMS,
+			self.DEFAULT_TIPS_PARAMS,
+			self.TIP_TIPS_PARAMS,
+			row, 2 )
+		row =  extPrefs.layout.rowCount()
+		extPrefs.prefsTabAddLabel( _("Shift:"), None, row, 0, 1, 1 )
+	        self.ptTipAction['Shift'] = extPrefs.prefsTabAddComboBox( None,
+			self.PREFS_TIPS_ACTION+".Shift",
+			self.DEFAULT_TIPS_ACTION,
+			self.VALUES_TIPS_ACTION,
+			self.TIP_TIPS_ACTION,
+			row, 1, 1, 1, QtGui.QComboBox.AdjustToMinimumContentsLength )
+		self.ptTipParams['Shift'] = extPrefs.prefsTabAddStringBox( None,
+			self.PREFS_TIPS_PARAMS+".Shift",
+			self.DEFAULT_TIPS_PARAMS,
+			self.TIP_TIPS_PARAMS,
+			row, 2 )
+		row =  extPrefs.layout.rowCount()
+		extPrefs.prefsTabAddLabel( _("Control:"), None, row, 0, 1, 1 )
+	        self.ptTipAction['Control'] = extPrefs.prefsTabAddComboBox( None,
+			self.PREFS_TIPS_ACTION+".Control",
+			self.DEFAULT_TIPS_ACTION,
+			self.VALUES_TIPS_ACTION,
+			self.TIP_TIPS_ACTION,
+			row, 1, 1, 1, QtGui.QComboBox.AdjustToMinimumContentsLength )
+		self.ptTipParams['Control'] = extPrefs.prefsTabAddStringBox( None,
+			self.PREFS_TIPS_PARAMS+".Control",
+			self.DEFAULT_TIPS_PARAMS,
+			self.TIP_TIPS_PARAMS,
+			row, 2 )
+		row =  extPrefs.layout.rowCount()
+		extPrefs.prefsTabAddLabel( _("Alt:"), None, row, 0, 1, 1 )
+	        self.ptTipAction['Alt'] = extPrefs.prefsTabAddComboBox( None,
+			self.PREFS_TIPS_ACTION+".Alt",
+			self.DEFAULT_TIPS_ACTION,
+			self.VALUES_TIPS_ACTION,
+			self.TIP_TIPS_ACTION,
+			row, 1, 1, 1, QtGui.QComboBox.AdjustToMinimumContentsLength )
+		self.ptTipParams['Alt'] = extPrefs.prefsTabAddStringBox( None,
+			self.PREFS_TIPS_PARAMS+".Alt",
+			self.DEFAULT_TIPS_PARAMS,
+			self.TIP_TIPS_PARAMS,
+			row, 2 )
+		row =  extPrefs.layout.rowCount()
+		extPrefs.prefsTabAddLabel( _("Meta:"), None, row, 0, 1, 1 )
+	        self.ptTipAction['Meta'] = extPrefs.prefsTabAddComboBox( None,
+			self.PREFS_TIPS_ACTION+".Meta",
+			self.DEFAULT_TIPS_ACTION,
+			self.VALUES_TIPS_ACTION,
+			self.TIP_TIPS_ACTION,
+			row, 1, 1, 1, QtGui.QComboBox.AdjustToMinimumContentsLength )
+		self.ptTipParams['Meta'] = extPrefs.prefsTabAddStringBox( None,
+			self.PREFS_TIPS_PARAMS+".Meta",
+			self.DEFAULT_TIPS_PARAMS,
+			self.TIP_TIPS_PARAMS,
+			row, 2 )
 		self.ptCheckChanged( self.ptCheck.isChecked() )
 
 	def acceptPrefs( self, extPrefs ):
 		extPrefs.prefsCommitCheckBox( self.PREFS_TIPS_ENABLE )
 		extPrefs.prefsCommitStringBox( self.PREFS_TIPS_MOVIE_VALUE )
-		extPrefs.prefsCommitStringBox( self.PREFS_TIPS_HTML_VALUE )
+		extPrefs.prefsCommitComboBox( self.PREFS_TIPS_ACTION )
+		extPrefs.prefsCommitStringBox( self.PREFS_TIPS_PARAMS )
+		extPrefs.prefsCommitComboBox( self.PREFS_TIPS_ACTION+'.Shift' )
+		extPrefs.prefsCommitStringBox( self.PREFS_TIPS_PARAMS+'.Shift' )
+		extPrefs.prefsCommitComboBox( self.PREFS_TIPS_ACTION+'.Control' )
+		extPrefs.prefsCommitStringBox( self.PREFS_TIPS_PARAMS+'.Control' )
+		extPrefs.prefsCommitComboBox( self.PREFS_TIPS_ACTION+'.Alt' )
+		extPrefs.prefsCommitStringBox( self.PREFS_TIPS_PARAMS+'.Alt' )
+		extPrefs.prefsCommitComboBox( self.PREFS_TIPS_ACTION+'.Meta' )
+		extPrefs.prefsCommitStringBox( self.PREFS_TIPS_PARAMS+'.Meta' )
 		self.setFromConfig( extPrefs.prefs.config )
 
 	def setFromConfig( self, config ):
 		enable = self.getEnabled(config)
 		self.ptMovieValue.setText( self.getMovieValue(config) )
-		self.ptHtmlValue.setText( self.getHtmlValue(config) )
+		self.ptTipAction[''].setCurrentIndex( self.getTipAction(config) )
+		self.ptTipParams[''].setText( self.getTipParams(config) )
+		self.ptTipAction['Shift'].setCurrentIndex( self.getTipAction(config, 'Shift') )
+		self.ptTipParams['Shift'].setText( self.getTipParams(config, 'Shift') )
+		self.ptTipAction['Control'].setCurrentIndex( self.getTipAction(config, 'Control') )
+		self.ptTipParams['Control'].setText( self.getTipParams(config, 'Control') )
+		self.ptTipAction['Alt'].setCurrentIndex( self.getTipAction(config, 'Alt') )
+		self.ptTipParams['Alt'].setText( self.getTipParams(config, 'Alt') )
+		self.ptTipAction['Meta'].setCurrentIndex( self.getTipAction(config, 'Meta') )
+		self.ptTipParams['Meta'].setText( self.getTipParams(config, 'Meta') )
 		self.ptCheckChanged( enable )
 
 	def ptCheckChanged( self, state ):
 		self.ptMovieValue.setEnabled(state)
-		self.ptHtmlValue.setEnabled(state)
+		self.ptTipAction[''].setEnabled(state)
+		self.ptTipParams[''].setEnabled(state)
+		self.ptTipAction['Shift'].setEnabled(state)
+		self.ptTipParams['Shift'].setEnabled(state)
+		self.ptTipAction['Control'].setEnabled(state)
+		self.ptTipParams['Control'].setEnabled(state)
+		self.ptTipAction['Alt'].setEnabled(state)
+		self.ptTipParams['Alt'].setEnabled(state)
+		self.ptTipAction['Meta'].setEnabled(state)
+		self.ptTipParams['Meta'].setEnabled(state)
 		self.w.setVisible(state)
 
 	def getEnabled( self, config ):
@@ -1175,8 +1271,17 @@ class ExtendToolTips(QtCore.QObject):
 
 	def getMovieValue( self, config ):
 		return getConfig(config, self.PREFS_TIPS_MOVIE_VALUE, self.DEFAULT_TIPS_MOVIE_VALUE)
-	def getHtmlValue( self, config ):
-		return getConfig(config, self.PREFS_TIPS_HTML_VALUE, self.DEFAULT_TIPS_HTML_VALUE)
+	def getTipAction( self, config, modifier='' ):
+		configName = self.PREFS_TIPS_ACTION
+		if modifier != None and len(modifier)>0:
+			configName += "." + modifier
+		return getConfig(config, configName, self.DEFAULT_TIPS_ACTION )
+
+	def getTipParams( self, config, modifier='' ):
+		configName = self.PREFS_TIPS_PARAMS
+		if modifier != None and len(modifier)>0:
+			configName += "." + modifier
+		return getConfig(config, configName, self.DEFAULT_TIPS_PARAMS )
 
 	def expandString( self, specStr, char, word ):
 		# map from tag->(value,description)
@@ -1189,6 +1294,36 @@ class ExtendToolTips(QtCore.QObject):
 		  'word-url': repr(unicode(word).encode('utf8')).replace('\\x','%').strip("u'"),
 		}
 		return unicode(specStr) % selText
+
+	def startLoadTip( self, char, word ):
+		# what modifier is pressed
+		modifier = QtGui.QApplication.keyboardModifiers()
+		modifierString = ""
+		if modifier & QtCore.Qt.ShiftModifier:
+			modifierString += "Shift"
+		elif modifier & QtCore.Qt.ControlModifier:
+			modifierString += "Control"
+		elif modifier & QtCore.Qt.AltModifier:
+			modifierString += "Alt"
+		elif modifier & QtCore.Qt.MetaModifier:
+			modifierString += "Meta"
+
+		# get modifier specific details
+		actionType = self.getTipAction( self.mw.config, modifierString )
+		internal = self.VALUES_TIPS_ACTION[actionType] == 'Internal'
+
+		actionString = self.getTipParams( self.mw.config, modifierString )
+		htmlName = self.expandString( actionString, char, word )
+
+		if actionType != self.lastAction or htmlName != self.lastHtml:
+			if internal:
+				self.tip.setHtml( "Loading %s ... " % htmlName )
+				threading.Thread( None, lambda url=htmlName: self.loadHtmlTip( url ) ).start()
+			else:
+				self.externalLoadHtmlTip( htmlName )
+
+			self.lastAction = actionType
+			self.lastHtml = htmlName
 
 	def tipLoaded( self, html ):
 		try:
@@ -1214,6 +1349,11 @@ Due to exception: %s
 
 		self.tipLoading = False
 
+	def externalLoadHtmlTip( self, url ):
+		self.mw.setStatus(_("Browsing to...%s") % url)
+		qurl = QtCore.QUrl()
+		qurl.setEncodedUrl(str(url))
+		QtGui.QDesktopServices.openUrl(qurl)
 
 	def hookQtEvents( self, parent ):
 		self.setParent(parent)
@@ -1248,12 +1388,8 @@ Due to exception: %s
 
 				htmlName=""
 				try:
-					htmlSpecString = self.getHtmlValue(self.mw.config)
-					htmlName = self.expandString( htmlSpecString, char, word )
-					if not self.tipLoading and char != "" and word != "" and htmlName != self.lastHtml:
-						self.lastHtml = htmlName
-						self.tip.setHtml( "Loading %s ... " % htmlName )
-						threading.Thread( None, lambda url=htmlName: self.loadHtmlTip( url ) ).start()
+					if not self.tipLoading and char != "" and word != "":
+						self.startLoadTip( char, word )
 				except Exception, e:
 					self.tip.setText( """Can't load: %s
 Due to exception: %s
