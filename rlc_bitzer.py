@@ -7,10 +7,12 @@
 # Description: 
 #
 # Author:      Richard Colley (richard.colley@rcolley.com)
-# Version:     0.09 (2008-03-31)
+# Version:     0.09a (2008-04-17)
 # License:     GPL
 # ---------------------------------------------------------------------------
 # Changelog:
+# ---- 0.09a -- 2008-04-17 -- Richard Colley ----
+#   some debug statements caused crash
 # ---- 0.09 -- 2008-03-31 -- Richard Colley ----
 #   changed all to new-style classes
 # ---- 0.08 -- 2008-03-31 -- Richard Colley ----
@@ -260,7 +262,7 @@ class AnkiDefaultSchedulingPolicy( CardSchedulingPolicy ):
 		self.default = default
 	def getCard( self, deck ):
 		card = self.default( deck )
-		RlcDebug.debug( "Default returning card: ", card.question )
+		if card: RlcDebug.debug( "Default returning card: ", card.question )
 		return card
 
 class DistributeNewCardsSchedulingPolicy( CardSchedulingPolicy ):
@@ -341,7 +343,7 @@ class DistributeNewCardsSchedulingPolicy( CardSchedulingPolicy ):
 			heappush(deck.futureQueue, item)
 			return deck.getCard()
 		card = deck.s.query(anki.cards.Card).get(item.id)
-		RlcDebug.debug( "Got card: ", card.id )
+		if card: RlcDebug.debug( "Got card: ", card.id )
 		card.genFuzz()
 		card.startTimer()
 		self.totalCardsScheduled=self.totalCardsScheduled+1
