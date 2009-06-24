@@ -10,10 +10,14 @@
 # License:     GPL v3
 # ---------------------------------------------------------------------------
 
-plugin_version = "v0.16"
+plugin_version = "v0.17"
 
 # Changelog:
 # 
+# ---- 0.17 -- 2008-05-01 -- Richard Colley ----
+#   Mouse-over character info.
+#   Preferences tool tips.
+#   Minimise to tray icon.
 # ---- 0.16 -- 2008-04-29 -- Richard Colley ----
 #   Try to detect if the main Anki install has implemented some of the
 #    the features of this plugin.  If so, don't interfere.
@@ -230,6 +234,10 @@ class ExtendAnkiPrefs(Hooks):
 		item = self.prefsGetItem( itemName )
 		self.prefsSetConfig( itemName, item.text() )
 
+	def prefsCommitStringBox( self, itemName ):
+		item = self.prefsGetItem( itemName )
+		self.prefsSetConfig( itemName, item.text() )
+
 	def prefsCommitSlider( self, itemName ):
 		slider = self.prefsGetItem( itemName )
 		self.prefsSetConfig( itemName, slider.value() )
@@ -256,27 +264,33 @@ class ExtendAnkiPrefs(Hooks):
 		self.prefs.dialog.tabWidget.addTab(self.rlcPrefsTab,self.tabTitle)
 		return self.layout
 
-	def prefsTabAddLabel( self, labelText, row=None, col=0, rowSpan=1, colSpan=-1 ):
+	def prefsTabAddLabel( self, labelText, toolTip=None, row=None, col=0, rowSpan=1, colSpan=-1 ):
 		label = QtGui.QLabel()
 		label.setText( labelText )
+		if toolTip:
+			print type(toolTip)
+			label.setToolTip( toolTip )
 		if row == None:
 			row = self.layout.rowCount()
 		self.layout.addWidget(label,row,col,rowSpan,colSpan)
 		return label
 
-	def prefsTabAddCheckBox( self, label, itemName, defaultValue, row=None, col=0, rowSpan=1, colSpan=-1 ):
+	def prefsTabAddCheckBox( self, label, itemName, defaultValue, toolTip=None, row=None, col=0, rowSpan=1, colSpan=-1 ):
 		checkBox = QtGui.QCheckBox()
 		checkBox.setObjectName( itemName )
 		checkBox.setText( label )
 
 		checkBox.setChecked( self.prefsGetConfig( itemName, defaultValue ) )
 		self.tabItems[itemName] = checkBox
+
+		if toolTip:
+			checkBox.setToolTip( toolTip )
 		if row == None:
 			row = self.layout.rowCount()
 		self.layout.addWidget(checkBox,row,col,rowSpan,colSpan)
 		return checkBox
 
-	def prefsTabAddIntegerBox( self, label, itemName, defaultValue, min, max, row=None, col=0, rowSpan=1, colSpan=-1 ):
+	def prefsTabAddIntegerBox( self, label, itemName, defaultValue, min, max, toolTip=None, row=None, col=0, rowSpan=1, colSpan=-1 ):
 		textLine = QtGui.QLineEdit()
 		textLine.setObjectName( itemName )
 
@@ -289,12 +303,27 @@ class ExtendAnkiPrefs(Hooks):
 
 		textLine.setText( QtCore.QString( str( self.prefsGetConfig(itemName, defaultValue) ) ) )
 		self.tabItems[itemName] = textLine
+
+		if toolTip:
+			textLine.setToolTip( toolTip )
 		if row == None:
 			row = self.layout.rowCount()
 		self.layout.addWidget(textLine,row,col,rowSpan,colSpan)
 		return textLine
 
-	def prefsTabAddSlider( self, label, itemName, defaultValue, min, max, step, legend, row=None, col=0, rowSpan=1, colSpan=-1 ):
+	def prefsTabAddStringBox( self, label, itemName, defaultValue, toolTip=None, row=None, col=0, rowSpan=1, colSpan=-1 ):
+		textLine = QtGui.QLineEdit()
+		textLine.setObjectName( itemName )
+		textLine.setText( QtCore.QString( self.prefsGetConfig(itemName, defaultValue) ) )
+		self.tabItems[itemName] = textLine
+		if toolTip:
+			textLine.setToolTip( toolTip )
+		if row == None:
+			row = self.layout.rowCount()
+		self.layout.addWidget(textLine,row,col,rowSpan,colSpan)
+		return textLine
+
+	def prefsTabAddSlider( self, label, itemName, defaultValue, min, max, step, legend, toolTip=None, row=None, col=0, rowSpan=1, colSpan=-1 ):
 		slider = QtGui.QSlider()
 		slider.setOrientation( Qt.Horizontal )
 		slider.setTickPosition(QtGui.QSlider.TicksBelow)
@@ -324,16 +353,20 @@ class ExtendAnkiPrefs(Hooks):
 				gl.addWidget(label,1,col+i,1,1)
 		else:
 			comp=slider
+		if toolTip:
+			slider.setToolTip( toolTip )
 		if row == None:
 			row = self.layout.rowCount()
 		self.layout.addWidget(comp,row,col,rowSpan,colSpan)
 		return comp
 
-	def prefsTabAddComboBox( self, label, itemName, defaultValue, optionList, row=None, col=0, rowSpan=1, colSpan=-1 ):
+	def prefsTabAddComboBox( self, label, itemName, defaultValue, optionList, toolTip=None, row=None, col=0, rowSpan=1, colSpan=-1 ):
 		combo = QtGui.QComboBox()
 		combo.addItems( optionList )
 		combo.setCurrentIndex( self.prefsGetConfig( itemName, defaultValue ) )
 		self.tabItems[itemName] = combo
+		if toolTip:
+			combo.setToolTip( toolTip )
 		if row == None:
 			row = self.layout.rowCount()
 		self.layout.addWidget(combo,row,col,rowSpan,colSpan)
@@ -345,12 +378,21 @@ class ExtendAnkiMain(object):
 
 	PREFS_FOCUS_ON_ANSWER = 'rlc.bitzer.answer.focusOnButton'
 	DEFAULT_FOCUS_ON_ANSWER = True
+	TIP_FOCUS_ON_ANSWER = """<p>If enabled, when choosing an answer, [space] will select
+				the default answer.
+				<p>Otherwise, there will be no default."""
 	PREFS_CHECK_FOR_UPDATE = 'rlc.bitzer.update.check'
 	DEFAULT_CHECK_FOR_UPDATE = True
 	PREFS_QUIETEN_UPDATE = 'rlc.bitzer.update.quieten'
 	DEFAULT_QUIETEN_UPDATE = False
+	TIP_QUIETEN_UPDATE = """<p>If enabled, on startup Anki will display a dialog if there's
+				a new version available.
+				<p>If not enabled, a message will be shown in the status bar
+				instead"""
 	PREFS_EASE_SHOW_TIMES = 'rlc.bitzer.answer.showTimes'
 	DEFAULT_EASE_SHOW_TIMES = True
+	TIP_EASE_SHOW_TIMES = """<p>If enabled, time intervals will be shown with each
+				answer button."""
 
 	def __init__( self, extPrefs ):
 		self.origShowEaseButtons = AnkiQt.showEaseButtons
@@ -374,18 +416,24 @@ class ExtendAnkiMain(object):
 		extPrefs.prefsTabAddLabel( _("<h1>Main Window Settings</h1>") )
 		extPrefs.prefsTabAddCheckBox( _("Focus on answer"),
 			self.PREFS_FOCUS_ON_ANSWER,
-			self.DEFAULT_FOCUS_ON_ANSWER )
+			self.DEFAULT_FOCUS_ON_ANSWER,
+			self.TIP_FOCUS_ON_ANSWER
+			)
 		if not AnkiFunctionality.isSuppressUpdateImplemented():
 			if self.permitUpdateDisable:
 				extPrefs.prefsTabAddCheckBox( _("Check for Anki updates"),
 					self.PREFS_CHECK_FOR_UPDATE,
-					self.DEFAULT_CHECK_FOR_UPDATE )
+					self.DEFAULT_CHECK_FOR_UPDATE,
+					)
 			extPrefs.prefsTabAddCheckBox( _("Suppress update dialog"),
 				self.PREFS_QUIETEN_UPDATE,
-				self.DEFAULT_QUIETEN_UPDATE )
+				self.DEFAULT_QUIETEN_UPDATE,
+				self.TIP_QUIETEN_UPDATE,
+				)
 		extPrefs.prefsTabAddCheckBox( _("Show interval time with answer buttons"),
 			self.PREFS_EASE_SHOW_TIMES,
-			self.DEFAULT_EASE_SHOW_TIMES )
+			self.DEFAULT_EASE_SHOW_TIMES,
+			self.TIP_EASE_SHOW_TIMES )
 
 	def acceptPrefs( self, extPrefs ):
 		extPrefs.prefsCommitCheckBox( self.PREFS_FOCUS_ON_ANSWER )
@@ -430,6 +478,10 @@ class ExtendAnkiMain(object):
 class ExtendAnkiEdit(object):
 	PREFS_EDIT_CURRENT = 'rlc.bitzer.edit.startupOnlyCurrent'
 	DEFAULT_EDIT_CURRENT = True
+	TIP_EDIT_CURRENT = """<p>If enabled, the Edit Deck window will open with only the
+				current card displayed.
+				<p>Otherwise, all cards are shown, but the cursor is placed
+				on the current card."""
 
 	def __init__( self, extPrefs ):
 		self.origSelectLastCard = EditDeck.selectLastCard
@@ -442,7 +494,9 @@ class ExtendAnkiEdit(object):
 		extPrefs.prefsTabAddLabel( _("<h1>Edit Cards Window</h1>") )
 		extPrefs.prefsTabAddCheckBox( _("Start Edit Deck with only the current card displayed"),
 			self.PREFS_EDIT_CURRENT,
-			self.DEFAULT_EDIT_CURRENT )
+			self.DEFAULT_EDIT_CURRENT,
+			self.TIP_EDIT_CURRENT
+			)
 
 	def acceptPrefs( self, extPrefs ):
 		extPrefs.prefsCommitCheckBox( self.PREFS_EDIT_CURRENT )
@@ -619,6 +673,17 @@ class ExtendAnkiScheduling(object):
 
 	PREFS_NEW_CARD_POLICY = 'rlc.bitzer.cards.new.policy'
 	DEFAULT_NEW_CARD_POLICY = NC_POLICY_ORIGINAL
+	TIP_NEW_CARD_POLICY = """<p>Select between different card scheduling policies.
+				These policies affect the order and timing of cards.
+				<ul>
+				  <li>Anki default policy</li>
+				  <li>New card distribution policy - this lets you mix in
+				  new cards while answering old ones.  You will be able to
+				  choose how frequently new cards will be shown.</li>
+				  <li>Ignore timing policy - review all cards immediately.
+				  Cards will be shown in the scheduled order, but the timing
+				  will be ignored.  Possibly useful for a quick review.</li>
+				</ul>"""
 	PREFS_NEW_CARD_DISTRIBUTION  = 'rlc.bitzer.cards.new.distribution'
 	DEFAULT_NEW_CARD_DISTRIBUTION  = 0
 
@@ -631,17 +696,13 @@ class ExtendAnkiScheduling(object):
 		extPrefs.hookAccept( self.acceptPrefs )
 
 	def addToPrefsTab( self, extPrefs ):
-		extPrefs.prefsTabAddLabel( _( """<h1>Card Scheduling</h1>
-				Select between different card scheduling policies.
-				<ul>
-				<li>Anki default policy</li>
-				<li>New card distribution policy</li>
-				<li>Ignore timing policy</li>
-				</ul>""" ) )
+		extPrefs.prefsTabAddLabel( _( """<h1>Card Scheduling</h1>""" ) )
 	        combo = extPrefs.prefsTabAddComboBox( _("Choose Policy"),
 			self.PREFS_NEW_CARD_POLICY,
 			self.DEFAULT_NEW_CARD_POLICY,
-			[ 'Anki Default', 'New cards mixed in', 'Ignore card timing' ] )
+			[ 'Anki Default', 'New cards mixed in', 'Ignore card timing' ],
+			self.TIP_NEW_CARD_POLICY
+			)
 		extPrefs.prefs.connect(combo, QtCore.SIGNAL("currentIndexChanged(int)"), lambda i: self.policySelected(i))
 		
 		self.slider = extPrefs.prefsTabAddSlider( _("Frequency of new cards during review"),
@@ -687,6 +748,10 @@ class ExtendAnkiScheduling(object):
 class ExtendAnkiHelp(object):
 	PREFS_ENABLE_SCRIBBLE = 'rlc.bitzer.help.scribble'
 	DEFAULT_ENABLE_SCRIBBLE = False
+	TIP_ENABLE_SCRIBBLE = """<p>Choose whether or not to enable the scribble pad.  This
+				area can be used for practising writing kanji or kana.
+				<p>Draw with the left mouse-button held down.  Right mouse-button
+				will clear the area."""
 
 	def __init__( self, extPrefs, mw ):
 		self.mw = mw
@@ -698,7 +763,9 @@ class ExtendAnkiHelp(object):
 	def addToPrefsTab( self, extPrefs ):
 		extPrefs.prefsTabAddCheckBox( _("Enable scribble pad"),
 			self.PREFS_ENABLE_SCRIBBLE,
-			self.DEFAULT_ENABLE_SCRIBBLE )
+			self.DEFAULT_ENABLE_SCRIBBLE,
+			self.TIP_ENABLE_SCRIBBLE,
+			)
 
 	def acceptPrefs( self, extPrefs ):
 		extPrefs.prefsCommitCheckBox( self.PREFS_ENABLE_SCRIBBLE )
@@ -825,12 +892,21 @@ class AnkiPersonalTrainer(object):
 
 	PREFS_TRAINER_ENABLE = 'rlc.bitzer.trainer.enable'
 	DEFAULT_TRAINER_ENABLE = False
+	TIP_TRAINER_ENABLE = """<p>The Anki Personal Trainer can be used to limit your Anki
+				study sessions.  You can set time limits or card number limits
+				on a session.  Pace yourself, and get a sense of accomplishment.
+				<p>When the session ends, Anki will ask you if you want to
+				extend ... push that little bit further! :)"""
 	PREFS_TRAINER_CARD_LIMIT = 'rlc.bitzer.trainer.limit.card'
 	DEFAULT_TRAINER_CARD_LIMIT = True
+	TIP_TRAINER_CARD_LIMIT = """<p>Enable if you want to set a limit on the number of cards
+				you study in a session."""
 	PREFS_TRAINER_CARD_LIMIT_VALUE = 'rlc.bitzer.trainer.limit.card.value'
 	DEFAULT_TRAINER_CARD_LIMIT_VALUE = 100
 	PREFS_TRAINER_TIME_LIMIT = 'rlc.bitzer.trainer.limit.time'
 	DEFAULT_TRAINER_TIME_LIMIT = False
+	TIP_TRAINER_TIME_LIMIT = """<p>Enable if you want to set a limit on the time you study
+				in a session.  Time is in minutes."""
 	PREFS_TRAINER_TIME_LIMIT_VALUE = 'rlc.bitzer.trainer.limit.time.value'
 	DEFAULT_TRAINER_TIME_LIMIT_VALUE = 60	# minutes
 
@@ -850,28 +926,34 @@ class AnkiPersonalTrainer(object):
 		extPrefs.prefsTabAddLabel( _("<h1>Personal Trainer</h1>") )
 		self.ptCheck = extPrefs.prefsTabAddCheckBox( _("Enable personal trainer"),
 			self.PREFS_TRAINER_ENABLE,
-			self.DEFAULT_TRAINER_ENABLE )
+			self.DEFAULT_TRAINER_ENABLE,
+			self.TIP_TRAINER_ENABLE,
+			)
 		row =  extPrefs.layout.rowCount()
 		extPrefs.prefs.connect(self.ptCheck, QtCore.SIGNAL("stateChanged(int)"), lambda i: self.ptCheckChanged(i))
 		self.ptCardCheck = extPrefs.prefsTabAddCheckBox( _("Card limit"),
 			self.PREFS_TRAINER_CARD_LIMIT,
 			self.DEFAULT_TRAINER_CARD_LIMIT,
+			self.TIP_TRAINER_CARD_LIMIT,
 			row, 0, 1, 1 )
 		extPrefs.prefs.connect(self.ptCardCheck, QtCore.SIGNAL("stateChanged(int)"), lambda i: self.ptCardCheckChanged(i))
 		self.ptCardValue = extPrefs.prefsTabAddIntegerBox( None,
 			self.PREFS_TRAINER_CARD_LIMIT_VALUE,
 			self.DEFAULT_TRAINER_CARD_LIMIT_VALUE,
 			1, 1000,
+			None,
 			row, 1, 1, 1 )
 		self.ptTimeCheck = extPrefs.prefsTabAddCheckBox( _("Time limit"),
 			self.PREFS_TRAINER_TIME_LIMIT,
 			self.DEFAULT_TRAINER_TIME_LIMIT,
+			self.TIP_TRAINER_TIME_LIMIT,
 			row, 2, 1, 1 )
 		extPrefs.prefs.connect(self.ptTimeCheck, QtCore.SIGNAL("stateChanged(int)"), lambda i: self.ptTimeCheckChanged(i))
 		self.ptTimeValue = extPrefs.prefsTabAddIntegerBox( None,
 			self.PREFS_TRAINER_TIME_LIMIT_VALUE,
 			self.DEFAULT_TRAINER_TIME_LIMIT_VALUE,
 			10, 600,
+			None,
 			row, 3, 1, 1 )
 
 		self.ptCheckChanged( self.ptCheck.isChecked() )
@@ -965,14 +1047,21 @@ class AnkiPersonalTrainer(object):
 
 ###############################################
 
-class AnkiTrayIcon( object ):
+class AnkiTrayIcon( QtCore.QObject ):
 	"""
 	Enable minimize to tray
 	"""
 
 	PREFS_TRAY_ENABLE = 'rlc.bitzer.tray.enable'
 	DEFAULT_TRAY_ENABLE = False
+	TIP_TRAY_ENABLE = """<p>Enable support for minimising Anki to the icon tray.
+			<p>If this is enabled, the Anki icon will be displayed in the system
+			icon tray.  If you click on the icon, the Anki window will be hidden.
+			Click again on the icon to re-display Anki.
+			<p>When questions are due, a pop-up box will be displayed to remind
+			you."""
 	def __init__( self, extPrefs, mw ):
+		QtCore.QObject.__init__( self, mw )
 		self.mw = mw
 		self.anki_visible = True
 		if QtGui.QSystemTrayIcon.isSystemTrayAvailable():
@@ -993,7 +1082,9 @@ class AnkiTrayIcon( object ):
 	def addToPrefsTab( self, extPrefs ):
 		self.ptCheck = extPrefs.prefsTabAddCheckBox( _("Enable tray icon"),
 			self.PREFS_TRAY_ENABLE,
-			self.DEFAULT_TRAY_ENABLE )
+			self.DEFAULT_TRAY_ENABLE,
+			self.TIP_TRAY_ENABLE,
+			)
 		self.ptCheckChanged( self.ptCheck.isChecked() )
 
 	def acceptPrefs( self, extPrefs ):
@@ -1013,6 +1104,8 @@ class AnkiTrayIcon( object ):
 				self.ti.hide()
 
 	def showMain( self ):
+		winState = ( self.mw.windowState() & ~Qt.WindowMinimized ) | Qt.WindowActive;
+		self.mw.setWindowState( winState )
 		self.mw.show()
 		self.anki_visible = True
 
@@ -1053,8 +1146,173 @@ class AnkiTrayIcon( object ):
 		else:
 			self.setToolTip( "Anki" )
 
+	def getEnabled( self, config ):
+		return getConfig( config, self.PREFS_TRAY_ENABLE, self.DEFAULT_TRAY_ENABLE )
+
+	def hookQtEvents( self, parent ):
+		self.setParent(parent)
+		parent.installEventFilter( self )
+
+	def eventFilter( self, obj, event ):
+		if self.getEnabled( self.mw.config ) and self.parent() == obj and event.type() == QtCore.QEvent.WindowStateChange:
+			if obj.windowState() & Qt.WindowMinimized:
+				self.hideMain()
+				return True
+		return QtCore.QObject.eventFilter(self, obj, event)
+
 
 ###############################################
+
+class ExtendToolTips(QtCore.QObject):
+	"""
+	Show info on characters hovered over.
+	"""
+
+	PREFS_TIPS_ENABLE = 'rlc.bitzer.tips.enable'
+	DEFAULT_TIPS_ENABLE = False
+	TIP_TIPS_ENABLE = """<p>When enabled, Anki will attempt to display additional
+			information about the character under the mouse pointer.  This is
+			displayed in a new dockable window.
+			<p>The additional information can include:
+			<ul>
+			  <li>an image file (animated GIFs ok)</li>
+			  <li>a HTML page</li>
+			</ul>
+			The image filename and info URL can include special tags that will be
+			replaced by:
+			<ul>
+			  <li>%(char)s - the character itself</li>
+			  <li>%(utf8-hex)s - hex digits for the character in UTF-8. e.g. e5ad90</li>
+			  <li>%(utf8-url)s - hex digits for the character in UTF-8, but suitable for adding to a URL. e.g. %e5%ad%90</li>
+			</ul>
+			"""
+	PREFS_TIPS_MOVIE_VALUE = 'rlc.bitzer.tips.movie'
+	DEFAULT_TIPS_MOVIE_VALUE = 'soda-utf8/%(char)s.gif'
+	TIP_TIPS_MOVIE_VALUE = """<p>Filename for the image file.  Remember that
+		special tags will be replaced in the filename.
+		<p>e.g. /home/user/soda-utf8/%(char)s.gif
+			"""
+	PREFS_TIPS_HTML_VALUE = 'rlc.bitzer.tips.html'
+	DEFAULT_TIPS_HTML_VALUE = 'soda-utf8/%(char)s.html'
+	TIP_TIPS_HTML_VALUE = """<p>Info on the character will be loaded from this URL
+		Remember that special tags will be replaced in the URL.
+		<p>e.g. http://www.csse.monash.edu.au/~jwb/cgi-bin/wwwjdic.cgi?1MMJ%(utf8-url)s_3
+			"""
+
+	def __init__(self, extPrefs, mw):
+		QtCore.QObject.__init__( self, mw )
+		self.mw = mw
+		self.w = QtGui.QDockWidget()
+		self.w.setFeatures( QtGui.QDockWidget.DockWidgetMovable|QtGui.QDockWidget.DockWidgetFloatable )
+		self.frame = QtGui.QFrame()
+		self.w.setWidget( self.frame )
+		self.movieLabel = QtGui.QLabel()
+		vbox = QtGui.QVBoxLayout()
+		self.tip = QtGui.QTextEdit()
+		self.tip.setReadOnly( True )
+		vbox.addWidget( self.movieLabel )
+		vbox.addWidget( self.tip )
+		self.frame.setLayout( vbox )
+		mw.addDockWidget( Qt.RightDockWidgetArea, self.w )
+
+		self.w.setVisible(self.getEnabled(mw.config))
+
+		extPrefs.hookSetup( self.addToPrefsTab )
+		extPrefs.hookAccept( self.acceptPrefs )
+
+	def addToPrefsTab( self, extPrefs ):
+		self.ptCheck = extPrefs.prefsTabAddCheckBox( _("Enable character tips"),
+			self.PREFS_TIPS_ENABLE,
+			self.DEFAULT_TIPS_ENABLE,
+			self.TIP_TIPS_ENABLE,
+			)
+		extPrefs.prefs.connect(self.ptCheck, QtCore.SIGNAL("stateChanged(int)"), lambda i: self.ptCheckChanged(i))
+		row =  extPrefs.layout.rowCount()
+		extPrefs.prefsTabAddLabel( _("Movie:"), None, row, 0, 1, 1 )
+		self.ptMovieValue = extPrefs.prefsTabAddStringBox( None,
+			self.PREFS_TIPS_MOVIE_VALUE,
+			self.DEFAULT_TIPS_MOVIE_VALUE,
+			self.TIP_TIPS_MOVIE_VALUE,
+			row, 1 )
+		row =  extPrefs.layout.rowCount()
+		extPrefs.prefsTabAddLabel( _("Info URL:"), None, row, 0, 1, 1 )
+		self.ptHtmlValue = extPrefs.prefsTabAddStringBox( None,
+			self.PREFS_TIPS_HTML_VALUE,
+			self.DEFAULT_TIPS_HTML_VALUE,
+			self.TIP_TIPS_HTML_VALUE,
+			row, 1 )
+		self.ptCheckChanged( self.ptCheck.isChecked() )
+
+	def acceptPrefs( self, extPrefs ):
+		extPrefs.prefsCommitCheckBox( self.PREFS_TIPS_ENABLE )
+		extPrefs.prefsCommitStringBox( self.PREFS_TIPS_MOVIE_VALUE )
+		extPrefs.prefsCommitStringBox( self.PREFS_TIPS_HTML_VALUE )
+		self.setFromConfig( extPrefs.prefs.config )
+
+	def setFromConfig( self, config ):
+		enable = self.getEnabled(config)
+		self.ptMovieValue.setText( self.getMovieValue(config) )
+		self.ptHtmlValue.setText( self.getHtmlValue(config) )
+		self.ptCheckChanged( enable )
+
+	def ptCheckChanged( self, state ):
+		self.ptMovieValue.setEnabled(state)
+		self.ptHtmlValue.setEnabled(state)
+		self.w.setVisible(state)
+
+	def getEnabled( self, config ):
+		return getConfig(config, self.PREFS_TIPS_ENABLE, self.DEFAULT_TIPS_ENABLE)
+
+	def getMovieValue( self, config ):
+		return getConfig(config, self.PREFS_TIPS_MOVIE_VALUE, self.DEFAULT_TIPS_MOVIE_VALUE)
+	def getHtmlValue( self, config ):
+		return getConfig(config, self.PREFS_TIPS_HTML_VALUE, self.DEFAULT_TIPS_HTML_VALUE)
+
+	def hookQtEvents( self, parent ):
+		self.setParent(parent)
+		parent.installEventFilter( self )
+
+	def eventFilter( self, obj, event ):
+		if self.getEnabled( self.mw.config ) and self.parent() == obj and event.type() == QtCore.QEvent.ToolTip:
+			gpos = event.globalPos()
+			pos = self.parent().mapFromGlobal( gpos )
+			tc = self.parent().cursorForPosition( pos )
+			tc.movePosition( tc.NextCharacter, tc.KeepAnchor )
+			if tc.hasSelection():
+				selText = { 'char': unicode(tc.selectedText()),
+				  'utf8-hex': repr(unicode(tc.selectedText()).encode('utf8')).replace('\\x','').strip("u'"),
+				  'utf8-url': repr(unicode(tc.selectedText()).encode('utf8')).replace('\\x','%').strip("u'"),
+				}
+				tc.select( tc.WordUnderCursor )
+				selText['word'] = unicode(tc.selectedText())
+
+				movieSpecString = unicode(self.getMovieValue(self.mw.config))
+				try:
+					movieName = movieSpecString % selText
+					self.movie = QtGui.QMovie( movieName )
+					self.movieLabel.setMovie( self.movie )
+				except Exception, e:
+					pass
+
+				htmlSpecString = unicode(self.getHtmlValue(self.mw.config))
+				try:
+					htmlName = htmlSpecString % selText
+					import urllib
+					html = urllib.urlopen( htmlName )
+					self.tip.setHtml( unicode(html.read(), 'utf8') )
+				except Exception, e:
+					self.tip.setText( """Can't load: %s
+Due to exception: %s
+""" % ( htmlName, e ) )
+					
+
+				self.movie.start()
+			return True
+		return QtCore.QObject.eventFilter(self, obj, event)
+
+
+###############################################
+
 class RlcBitzer( object ):
 
 	def __init__( self, ankiMain ):
@@ -1064,8 +1322,10 @@ class RlcBitzer( object ):
 		self.extPrefs = ExtendAnkiPrefs( _("RLC Bitzer Settings") )
 		self.extMain = ExtendAnkiMain( self.extPrefs )
 		self.extHelp = ExtendAnkiHelp( self.extPrefs, self.mw )
+		self.extToolTips = ExtendToolTips( self.extPrefs, self.mw )
 		if not AnkiFunctionality.isTrayIconImplemented():
 			self.trayIcon = AnkiTrayIcon( self.extPrefs, self.mw )
+
 		if not AnkiFunctionality.isEditSelectionImplemented():
 			self.extEdit = ExtendAnkiEdit( self.extPrefs )
 		self.extScheduler = ExtendAnkiScheduling( self.extPrefs, self.mw.config )
@@ -1073,14 +1333,26 @@ class RlcBitzer( object ):
 
 	def pluginInit( self ):
 		self.extHelp.setScribble( getConfig( mw.config, self.extHelp.PREFS_ENABLE_SCRIBBLE, self.extHelp.DEFAULT_ENABLE_SCRIBBLE ) )
+		if not AnkiFunctionality.isTrayIconImplemented():
+			self.trayIcon.hookQtEvents( self.mw )
+		self.extToolTips.hookQtEvents( self.mw.mainWin.mainText )
 
 
 ###################################
 
-
+def abc():
+	print "hi", mw.mainWin.mainText.textCursor().selectedText()
+	
 
 def hookPluginInit():
 	r.pluginInit()
+	#mw.connect(mw.mainWin.mainText, QtCore.SIGNAL("customContextMenuRequested(const QPoint &)"), abc)
+	#mw.connect(mw.mainWin.mainText, QtCore.SIGNAL("clicked()"), lambda: abc() )
+	#mw.mousePressEvent = lambda obj, event: xyz( obj, event )
+	#mw.mainWin.mainText.mousePressEvent = lambda obj, event: xyz( obj, event )
+
+	# sort of works
+	#mw.connect(mw.mainWin.mainText, QtCore.SIGNAL("selectionChanged()"), lambda: abc() )
 
 
 # Startup has been split into 2 stages ... early stuff that happens as soon as
