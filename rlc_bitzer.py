@@ -11,10 +11,13 @@
 # License:     GPL
 # ---------------------------------------------------------------------------
 
-plugin_version = "v0.14"
+plugin_version = "v0.15"
 
 # Changelog:
 # 
+# ---- 0.15 -- 2008-04-25 -- Richard Colley ----
+#   Merged with latest Anki scheduling code.
+#   New option to not display interval time with answer buttons
 # ---- 0.14 -- 2008-04-24 -- Richard Colley ----
 #   Added tray icon, and plugin version string to prefs
 # ---- 0.13 -- 2008-04-19 -- Richard Colley ----
@@ -312,10 +315,16 @@ class ExtendAnkiMain(object):
 	DEFAULT_CHECK_FOR_UPDATE = True
 	PREFS_QUIETEN_UPDATE = 'rlc.bitzer.update.quieten'
 	DEFAULT_QUIETEN_UPDATE = False
+	PREFS_EASE_SHOW_TIMES = 'rlc.bitzer.answer.showTimes'
+	DEFAULT_EASE_SHOW_TIMES = True
 
 	def __init__( self, extPrefs ):
 		self.origShowEaseButtons = AnkiQt.showEaseButtons
 		AnkiQt.showEaseButtons = lambda main: self.interceptShowEaseButtons( main )
+		self.origShowStandardEaseButtons = AnkiQt.showStandardEaseButtons
+		AnkiQt.showStandardEaseButtons = lambda main,grid,nextInts,text: self.interceptShowStandardEaseButtons( main, grid, nextInts, text )
+		self.origShowCompactEaseButtons = AnkiQt.showCompactEaseButtons
+		AnkiQt.showCompactEaseButtons = lambda main,grid,nextInts: self.interceptShowCompactEaseButtons( main, grid, nextInts )
 		self.origSetupAutoUpdate = AnkiQt.setupAutoUpdate
 		AnkiQt.setupAutoUpdate = lambda main: self.interceptSetupAutoUpdate( main )
 		self.origNewVerAvail = AnkiQt.newVerAvail
@@ -338,12 +347,16 @@ class ExtendAnkiMain(object):
 		extPrefs.prefsTabAddCheckBox( _("Suppress update dialog"),
 			self.PREFS_QUIETEN_UPDATE,
 			self.DEFAULT_QUIETEN_UPDATE )
+		extPrefs.prefsTabAddCheckBox( _("Show interval time with answer buttons"),
+			self.PREFS_EASE_SHOW_TIMES,
+			self.DEFAULT_EASE_SHOW_TIMES )
 
 	def acceptPrefs( self, extPrefs ):
 		extPrefs.prefsCommitCheckBox( self.PREFS_FOCUS_ON_ANSWER )
 		if self.permitUpdateDisable:
 			extPrefs.prefsCommitCheckBox( self.PREFS_CHECK_FOR_UPDATE )
 		extPrefs.prefsCommitCheckBox( self.PREFS_QUIETEN_UPDATE )
+		extPrefs.prefsCommitCheckBox( self.PREFS_EASE_SHOW_TIMES )
 
 	def interceptShowEaseButtons( self, mw ):
 		self.origShowEaseButtons( mw )
@@ -351,8 +364,23 @@ class ExtendAnkiMain(object):
 			# now remove focus from answer button
 			mw.setFocus()
 
+	def interceptShowStandardEaseButtons( self, mw, grid, nextInts, text ):
+		if not getConfig(mw.config, self.PREFS_EASE_SHOW_TIMES, self.DEFAULT_EASE_SHOW_TIMES):
+			text = (
+			    (_("Completely forgot"), ""),
+				(_("Made a mistake"), ""),
+				(_("Difficult"), ""),
+				(_("About right"), ""),
+				(_("Easy"), "") )
+		return self.origShowStandardEaseButtons( mw, grid, nextInts, text )
+
+	def interceptShowCompactEaseButtons( self, mw, grid, nextInts ):
+		if not getConfig(mw.config, self.PREFS_EASE_SHOW_TIMES, self.DEFAULT_EASE_SHOW_TIMES):
+			nextInts = { "ease0": "", "ease1": "", "ease2": "", "ease3": "", "ease4": "" }
+		return self.origShowCompactEaseButtons( mw, grid, nextInts )
+
 	def interceptSetupAutoUpdate( self, mw ):
-		if getConfig(mw.config, self.PREFS_CHECK_FOR_UPDATE, self.DEFAULT_CHECK_FOR_UPDATE):
+		if not getConfig(mw.config, self.PREFS_CHECK_FOR_UPDATE, self.DEFAULT_CHECK_FOR_UPDATE):
 			RlcDebug.debug( "Checking for update!" )
 			self.origSetupAutoUpdate( mw )
 
@@ -404,7 +432,7 @@ class ExtendAnkiEdit(object):
 
 import time
 from heapq import heappush, heappop
-from anki.deck import Deck
+from anki.deck import Deck, FutureItem
 import anki
 
 class CardSchedulingPolicy(object):
@@ -484,12 +512,10 @@ class DistributeNewCardsSchedulingPolicy( CardSchedulingPolicy ):
 		    item = heappop(deck.acqQueue)
 		    isNew = True
 		else:
-		    if not deck.failedCardsDueSoon():
-			# stop
-			return
-		    # otherwise, go into final review mode.
-		    item = deck.getOldestModifiedFailedCard()
-		    if item.due - time.time() > deck.collapseTime:
+		    if deck.collapsedFailedCards():
+			# final review
+			item = deck.getOldestModifiedFailedCard(collapse=True)
+		    else:
 			return
 		# if it's not failed, check if it's spaced
 		if item.successive or item.reps == 0:
@@ -497,6 +523,7 @@ class DistributeNewCardsSchedulingPolicy( CardSchedulingPolicy ):
 		    if space > now:
 			# update due time and put it back in future queue
 			item.due = max(item.due, space)
+			item = deck.itemFromItem(FutureItem, item)
 			heappush(deck.futureQueue, item)
 			return deck.getCard()
 		card = deck.s.query(anki.cards.Card).get(item.id)
