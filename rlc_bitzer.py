@@ -7,14 +7,16 @@
 # Description: 
 #
 # Author:      Richard Colley (richard.colley@rcolley.com)
-# Version:     0.09 (2008-03-31)
-# License:     GPL
+# License:     GPL v3
 # ---------------------------------------------------------------------------
 
-plugin_version = "v0.15"
+plugin_version = "v0.16"
 
 # Changelog:
 # 
+# ---- 0.16 -- 2008-04-29 -- Richard Colley ----
+#   Try to detect if the main Anki install has implemented some of the
+#    the features of this plugin.  If so, don't interfere.
 # ---- 0.15 -- 2008-04-25 -- Richard Colley ----
 #   Merged with latest Anki scheduling code.
 #   New option to not display interval time with answer buttons
@@ -62,6 +64,38 @@ from ankiqt.ui.main import AnkiQt
 from ankiqt.ui.cardlist import EditDeck, DeckModel
 from ankiqt.ui.preferences import Preferences
 from ankiqt.ui.utils import askUser
+
+############
+
+class AnkiFunctionality(object):
+	def __init__(self):
+		pass
+
+	def isSuppressUpdateImplemented( self ):
+		try:
+			if mw.newVerInStatusBar:
+				pass
+			return True
+		except:
+			return False
+	isSuppressUpdateImplemented=classmethod(isSuppressUpdateImplemented)
+
+	def isEditSelectionImplemented( self ):
+		try:
+			if EditDeck.findCardInDeckModel:
+				pass
+			return True
+		except:
+			return False
+	isEditSelectionImplemented=classmethod(isEditSelectionImplemented)
+
+	def isTrayIconImplemented( self ):
+		try:
+			import ankiqt.ui.tray
+			return True
+		except:
+			return False
+	isTrayIconImplemented=classmethod(isTrayIconImplemented)
 
 ############
 
@@ -325,10 +359,11 @@ class ExtendAnkiMain(object):
 		AnkiQt.showStandardEaseButtons = lambda main,grid,nextInts,text: self.interceptShowStandardEaseButtons( main, grid, nextInts, text )
 		self.origShowCompactEaseButtons = AnkiQt.showCompactEaseButtons
 		AnkiQt.showCompactEaseButtons = lambda main,grid,nextInts: self.interceptShowCompactEaseButtons( main, grid, nextInts )
-		self.origSetupAutoUpdate = AnkiQt.setupAutoUpdate
-		AnkiQt.setupAutoUpdate = lambda main: self.interceptSetupAutoUpdate( main )
-		self.origNewVerAvail = AnkiQt.newVerAvail
-		AnkiQt.newVerAvail = lambda main, version: self.interceptNewVerAvail( main, version )
+		if not AnkiFunctionality.isSuppressUpdateImplemented():
+			self.origSetupAutoUpdate = AnkiQt.setupAutoUpdate
+			AnkiQt.setupAutoUpdate = lambda main: self.interceptSetupAutoUpdate( main )
+			self.origNewVerAvail = AnkiQt.newVerAvail
+			AnkiQt.newVerAvail = lambda main, version: self.interceptNewVerAvail( main, version )
 
 		# add to preferences tab
 		extPrefs.hookSetup( self.addToPrefsTab )
@@ -340,22 +375,24 @@ class ExtendAnkiMain(object):
 		extPrefs.prefsTabAddCheckBox( _("Focus on answer"),
 			self.PREFS_FOCUS_ON_ANSWER,
 			self.DEFAULT_FOCUS_ON_ANSWER )
-		if self.permitUpdateDisable:
-			extPrefs.prefsTabAddCheckBox( _("Check for Anki updates"),
-				self.PREFS_CHECK_FOR_UPDATE,
-				self.DEFAULT_CHECK_FOR_UPDATE )
-		extPrefs.prefsTabAddCheckBox( _("Suppress update dialog"),
-			self.PREFS_QUIETEN_UPDATE,
-			self.DEFAULT_QUIETEN_UPDATE )
+		if not AnkiFunctionality.isSuppressUpdateImplemented():
+			if self.permitUpdateDisable:
+				extPrefs.prefsTabAddCheckBox( _("Check for Anki updates"),
+					self.PREFS_CHECK_FOR_UPDATE,
+					self.DEFAULT_CHECK_FOR_UPDATE )
+			extPrefs.prefsTabAddCheckBox( _("Suppress update dialog"),
+				self.PREFS_QUIETEN_UPDATE,
+				self.DEFAULT_QUIETEN_UPDATE )
 		extPrefs.prefsTabAddCheckBox( _("Show interval time with answer buttons"),
 			self.PREFS_EASE_SHOW_TIMES,
 			self.DEFAULT_EASE_SHOW_TIMES )
 
 	def acceptPrefs( self, extPrefs ):
 		extPrefs.prefsCommitCheckBox( self.PREFS_FOCUS_ON_ANSWER )
-		if self.permitUpdateDisable:
-			extPrefs.prefsCommitCheckBox( self.PREFS_CHECK_FOR_UPDATE )
-		extPrefs.prefsCommitCheckBox( self.PREFS_QUIETEN_UPDATE )
+		if not AnkiFunctionality.isSuppressUpdateImplemented():
+			if self.permitUpdateDisable:
+				extPrefs.prefsCommitCheckBox( self.PREFS_CHECK_FOR_UPDATE )
+			extPrefs.prefsCommitCheckBox( self.PREFS_QUIETEN_UPDATE )
 		extPrefs.prefsCommitCheckBox( self.PREFS_EASE_SHOW_TIMES )
 
 	def interceptShowEaseButtons( self, mw ):
@@ -1027,8 +1064,10 @@ class RlcBitzer( object ):
 		self.extPrefs = ExtendAnkiPrefs( _("RLC Bitzer Settings") )
 		self.extMain = ExtendAnkiMain( self.extPrefs )
 		self.extHelp = ExtendAnkiHelp( self.extPrefs, self.mw )
-		self.trayIcon = AnkiTrayIcon( self.extPrefs, self.mw )
-		self.extEdit = ExtendAnkiEdit( self.extPrefs )
+		if not AnkiFunctionality.isTrayIconImplemented():
+			self.trayIcon = AnkiTrayIcon( self.extPrefs, self.mw )
+		if not AnkiFunctionality.isEditSelectionImplemented():
+			self.extEdit = ExtendAnkiEdit( self.extPrefs )
 		self.extScheduler = ExtendAnkiScheduling( self.extPrefs, self.mw.config )
 		self.personalTrainer = AnkiPersonalTrainer( self.extPrefs, self.mw )
 
