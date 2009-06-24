@@ -10,10 +10,12 @@
 # License:     GPL v3
 # ---------------------------------------------------------------------------
 
-plugin_version = "v0.26"
+plugin_version = "v0.27"
 
 # Changelog:
 # 
+# ---- 0.27 -- 2009-05-09 -- Richard Colley ----
+#   Quick hack to remove code broken by anki changes
 # ---- 0.26 -- 2008-09-08 -- Richard Colley ----
 #   Activate external html tip loading
 #   Multiple html tip urls (depends on modifier pressed during mouse-over)
@@ -803,7 +805,7 @@ class ExtendAnkiHelp(object):
 
 		button = QtGui.QPushButton(_("Clear Drawing"))
 		button.setDefault(True)
-		button.setFixedHeight(self.mw.easeButtonHeight)
+		#button.setFixedHeight(self.mw.easeButtonHeight)
 		self.mw.connect(button, QtCore.SIGNAL("clicked()"),
                      lambda: pad.clearScreen())
 
