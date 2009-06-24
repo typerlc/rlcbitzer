@@ -546,10 +546,10 @@ limit is above 1."""
 		if rem > 0:
 		    # new card
 		    if deck.newCardOrder == 0:
-			newids += deck.s.column0(
+			newids = deck.s.column0(
 			    "select id from acqCardsRandom limit %d" % rem)
 		    else:
-			newids += deck.s.column0(
+			newids = deck.s.column0(
 			    "select id from acqCardsOrdered limit %d" % rem)
 		    ids += newids
 		    self.newCardsScheduled += len(newids)
