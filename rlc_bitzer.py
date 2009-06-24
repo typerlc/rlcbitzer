@@ -7,10 +7,12 @@
 # Description: 
 #
 # Author:      Richard Colley (richard.colley@rcolley.com)
-# Version:     0.08 (2008-03-31)
+# Version:     0.09 (2008-03-31)
 # License:     GPL
 # ---------------------------------------------------------------------------
 # Changelog:
+# ---- 0.09 -- 2008-03-31 -- Richard Colley ----
+#   changed all to new-style classes
 # ---- 0.08 -- 2008-03-31 -- Richard Colley ----
 #   added combo box to choose new card scheduling policy
 # ---- 0.07 -- 2008-03-30 -- Richard Colley ----
@@ -73,7 +75,7 @@ class RlcDebug(object):
 
 #####################
 
-class ExtendAnkiPrefs():
+class ExtendAnkiPrefs(object):
 	def __init__( self ):
 		self.tabItems = {}
 		self.origSetupAdvanced = Preferences.setupAdvanced
@@ -206,7 +208,7 @@ class ExtendAnkiPrefs():
 		layout.addWidget(combo,row,col,rowSpan,colSpan)
 		return combo
 
-class ExtendAnkiMain():
+class ExtendAnkiMain(object):
 	def __init__( self ):
 		self.origShowEaseButtons = AnkiQt.showEaseButtons
 		AnkiQt.showEaseButtons = lambda main: self.interceptShowEaseButtons( main )
@@ -224,7 +226,7 @@ class ExtendAnkiMain():
 	def interceptNewVerAvail( self, main, version ):
 		self.origNewVerAvail( main, version )
 
-class ExtendAnkiEdit():
+class ExtendAnkiEdit(object):
 	def __init__( self ):
 		self.origSelectLastCard = EditDeck.selectLastCard
 		EditDeck.selectLastCard = lambda edit: self.interceptSelectLastCard( edit )
@@ -246,7 +248,7 @@ from heapq import heappush, heappop
 from anki.deck import Deck
 import anki
 
-class CardSchedulingPolicy():
+class CardSchedulingPolicy(object):
 	def __init__( self ):
 		pass
 	def getCard( self ):
@@ -351,7 +353,7 @@ class DistributeNewCardsSchedulingPolicy( CardSchedulingPolicy ):
 		    self.cardsSinceLastNew = self.cardsSinceLastNew + 1
 		return card
 
-class ExtendAnkiScheduling():
+class ExtendAnkiScheduling(object):
 	def __init__( self ):
 		self.oldDeckGetCard = Deck.getCard
 		Deck.getCard = lambda deck : self.interceptDeckGetCard( deck )
@@ -366,7 +368,7 @@ class ExtendAnkiScheduling():
 		return self.schedulingPolicy.getCard( deck )
 
 
-class ExtendAnkiHelp():
+class ExtendAnkiHelp(object):
 	def __init__( self, mw ):
 		self.mw = mw
 		self.scribbleActive = False
