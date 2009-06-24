@@ -10,10 +10,14 @@
 # License:     GPL v3
 # ---------------------------------------------------------------------------
 
-plugin_version = "v0.22"
+plugin_version = "v0.24"
 
 # Changelog:
 # 
+# ---- 0.24 -- 2008-09-07 -- Richard Colley ----
+#   Disable new card distribution scheduler if anki 0.9.7.8
+# ---- 0.23 -- 2008-09-07 -- Richard Colley ----
+#   Fixed bug in html lookup code
 # ---- 0.22 -- 2008-09-02 -- Richard Colley ----
 #   Fixed bug in debugging code
 # ---- 0.21 -- 2008-08-27 -- Richard Colley ----
@@ -99,6 +103,17 @@ class AnkiFunctionality(object):
 		except:
 			return False
 	isSuppressUpdateImplemented=classmethod(isSuppressUpdateImplemented)
+
+	def isNewCardSpreadImplemented( self ):
+		try:
+			import anki
+			if 'NEW_CARDS_DISTRIBUTE' in dir(anki.deck):
+				return True
+			else:
+				return False
+		except:
+			return False
+	isNewCardSpreadImplemented=classmethod(isNewCardSpreadImplemented)
 
 ############
 
@@ -667,14 +682,17 @@ class ExtendAnkiScheduling(object):
 	TIP_NEW_CARD_POLICY = """<p>Select between different card scheduling policies.
 				These policies affect the order and timing of cards.
 				<ul>
-				  <li>Anki default policy</li>
+				  <li>Anki default policy</li>"""
+	if not AnkiFunctionality.isNewCardSpreadImplemented():
+		TIP_NEW_CARD_POLCIY += """
 				  <li>New card distribution policy - this lets you mix in
 				  new cards while answering old ones.  You will be able to
 				  choose how frequently new cards will be shown.</li>
-				  <li>Ignore timing policy - review all cards immediately.
-				  Cards will be shown in the scheduled order, but the timing
-				  will be ignored.  Possibly useful for a quick review.</li>
-				</ul>"""
+				  """
+#				  <li>Ignore timing policy - review all cards immediately.
+#				  Cards will be shown in the scheduled order, but the timing
+#				  will be ignored.  Possibly useful for a quick review.</li>
+	TIP_NEW_CARD_POLICY += """</ul>"""
 	PREFS_NEW_CARD_DISTRIBUTION  = 'rlc.bitzer.cards.new.distribution'
 	DEFAULT_NEW_CARD_DISTRIBUTION  = 0
 
@@ -692,7 +710,7 @@ class ExtendAnkiScheduling(object):
 			self.PREFS_NEW_CARD_POLICY,
 			self.DEFAULT_NEW_CARD_POLICY,
 			#[ 'Anki Default', 'New cards mixed in', 'Ignore card timing' ], #with Speed-round
-			[ 'Anki Default', 'New cards mixed in' ],
+			( [ 'Anki Default', 'New cards mixed in' ], [ 'Anki Default' ] )[AnkiFunctionality.isNewCardSpreadImplemented()],
 			self.TIP_NEW_CARD_POLICY
 			)
 		extPrefs.prefs.connect(combo, QtCore.SIGNAL("currentIndexChanged(int)"), lambda i: self.policySelected(i))
@@ -706,15 +724,17 @@ class ExtendAnkiScheduling(object):
 		self.policySelected( getConfig( extPrefs.prefs.config, self.PREFS_NEW_CARD_POLICY, self.DEFAULT_NEW_CARD_POLICY ) )
 
 	def policySelected( self, index ):
-		if index == self.NC_POLICY_DISTRIBUTE:
-			self.slider.show()
+		if ( not AnkiFunctionality.isNewCardSpreadImplemented() and
+			index == self.NC_POLICY_DISTRIBUTE ):
+				self.slider.show()
 		else:
 			self.slider.hide()
 		
 
 	def acceptPrefs( self, extPrefs ):
 		extPrefs.prefsCommitComboBox( self.PREFS_NEW_CARD_POLICY )
-		extPrefs.prefsCommitSlider( self.PREFS_NEW_CARD_DISTRIBUTION )
+		if not AnkiFunctionality.isNewCardSpreadImplemented():
+			extPrefs.prefsCommitSlider( self.PREFS_NEW_CARD_DISTRIBUTION )
 		self.setSchedulingPolicyFromConfig( extPrefs.prefs.config )
 
 	def setSchedulingPolicy( self, schedulingPolicy ):
@@ -726,8 +746,8 @@ class ExtendAnkiScheduling(object):
 
 	def setSchedulingPolicyFromConfig( self, config ):
 		policy = getConfig( config, self.PREFS_NEW_CARD_POLICY, self.DEFAULT_NEW_CARD_POLICY )
-		if policy == self.NC_POLICY_DISTRIBUTE:
-			pass
+		if ( not AnkiFunctionality.isNewCardSpreadImplemented() and
+				policy == self.NC_POLICY_DISTRIBUTE ):
 			self.schedulingPolicy = DistributeNewCardsSchedulingPolicy(
 				getConfig( config, self.PREFS_NEW_CARD_DISTRIBUTION,
 						self.DEFAULT_NEW_CARD_DISTRIBUTION) * 25 )
@@ -1224,6 +1244,7 @@ Due to exception: %s
 				except Exception, e:
 					pass
 
+				htmlName=""
 				try:
 					htmlSpecString = self.getHtmlValue(self.mw.config)
 					htmlName = self.expandString( htmlSpecString, char, word )
