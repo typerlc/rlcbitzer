@@ -10,10 +10,12 @@
 # License:     GPL v3
 # ---------------------------------------------------------------------------
 
-plugin_version = "v0.21"
+plugin_version = "v0.22"
 
 # Changelog:
 # 
+# ---- 0.22 -- 2008-09-02 -- Richard Colley ----
+#   Fixed bug in debugging code
 # ---- 0.21 -- 2008-08-27 -- Richard Colley ----
 #   Port to Anki 0.9.7.x
 #   - removed: ease time display, edit window start state, tray icon
@@ -523,7 +525,7 @@ limit is above 1."""
 		    else:
 			ids += deck.s.column0(
 			    "select id from acqCardsOrdered limit 1")
-		    RlcDebug.debug( "popped: ", ids[0] )
+		    if ids: RlcDebug.debug( "popped: ", ids[0] )
 		    self.newCardsScheduled += len(ids)
 
 		rem = limit - len(ids)
@@ -588,7 +590,7 @@ limit is above 1."""
 #		    else:
 #			ids += deck.s.column0(
 #			    "select id from acqCardsOrdered limit 1")
-#		    RlcDebug.debug( "popped: ", ids[0] )
+#		    if ids: RlcDebug.debug( "popped: ", ids[0] )
 #		    self.newCardsScheduled += len(ids)
 #
 #		rem = limit - len(ids)
